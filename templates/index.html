@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="author" content="Mrkraps aka orgeco" />
+  <meta name="generator" content="MC Server Manager by Mrkraps aka orgeco" />
+  <title>MC Server Manager v2</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fira+Code:wght@400;500;600&family=Manrope:wght@400;500;600;700;800&family=Orbitron:wght@500;600;700;800&family=Press+Start+2P&family=Rajdhani:wght@400;500;600;700&family=Space+Mono:wght@400;700&family=Space+Grotesk:wght@400;500;600;700&family=VT323&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <!-- MC-SERVER-MANAGER-OWNER: Mrkraps aka orgeco -->
+  <span class="owner-watermark" data-owner="Mrkraps aka orgeco" aria-hidden="true">Mrkraps aka orgeco</span>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="logo">
+        <span class="logo-icon">MC</span>
+        <div><strong>MC Manager</strong><small>v2 / control center</small></div>
+      </div>
+      <nav>
+        <button class="nav-btn active" data-tab="servers"><span class="nav-icon">01</span> Servers</button>
+        <button class="nav-btn" data-tab="create"><span class="nav-icon">02</span> Create</button>
+        <button class="nav-btn" data-tab="browser"><span class="nav-icon">03</span> Plugins & Mods</button>
+        <button class="nav-btn" data-tab="settings"><span class="nav-icon">04</span> Settings</button>
+      </nav>
+      <div class="sidebar-footer"><small>Paper API fixed · File manager · Players</small><small>Dev / Owner: Mrkraps aka orgeco</small></div>
+    </aside>
+
+    <main class="main">
+      <div class="utility-bar"><span><i></i> Local workspace</span><span class="utility-time">MC SERVER MANAGER / 2.0</span></div>
+
+      <section id="tab-servers" class="tab active">
+        <header class="page-header">
+          <div><span class="eyebrow">Workspace overview · Dev / Owner: Mrkraps aka orgeco</span><h1>Your Servers</h1></div>
+          <button class="btn primary" onclick="switchTab('create')"><span>+</span> New Server</button>
+        </header>
+
+        <div class="server-toolbar">
+          <div id="server-summary" class="summary-strip"></div>
+          <div class="toolbar-actions">
+            <label class="sr-only" for="server-filter">Filter servers</label>
+            <select id="server-filter" class="toolbar-select">
+              <option value="all">All Servers</option>
+              <option value="online">Online</option>
+              <option value="offline">Offline</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="servers-list" class="cards-grid"><div class="loading">Loading...</div></div>
+      </section>
+
+      <section id="tab-create" class="tab">
+        <header class="page-header"><h1>Create Server</h1></header>
+        <div class="form-card">
+          <div class="form-group">
+            <label>Server Name</label>
+            <input type="text" id="create-name" placeholder="My Server" maxlength="40" />
+          </div>
+          <div class="server-logo-picker">
+            <div id="create-logo-preview" class="server-avatar avatar-lime">MC</div>
+            <div><strong>Server logo</strong><small>Generated from your server identity</small></div>
+            <button class="btn small" type="button" onclick="shuffleServerLogo()">Shuffle logo</button>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Type</label>
+              <select id="create-type">
+                <option value="paper">Paper (plugins)</option>
+                <option value="purpur">Purpur</option>
+                <option value="vanilla">Vanilla</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Version</label>
+              <select id="create-version"><option>Loading...</option></select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label for="create-port">Server Port</label><input type="number" id="create-port" min="1024" max="65535" step="1" value="25565" /><small class="field-hint">Allowed range: 1024–65535</small></div>
+            <div class="form-group"><label for="create-max-players">Max Players <strong id="max-players-display">20</strong></label><input type="range" id="create-max-players" min="1" max="100" step="1" value="20" /><div class="range-scale"><span>1</span><span>100</span></div></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label for="create-gamemode">Game Mode</label><select id="create-gamemode"><option>survival</option><option>creative</option><option>adventure</option><option>spectator</option></select></div>
+            <div class="form-group"><label for="create-difficulty">Difficulty</label><select id="create-difficulty"><option>easy</option><option selected>normal</option><option>hard</option><option>peaceful</option></select></div>
+          </div>
+          <div class="form-group"><label for="create-motd">Message of the day</label><input type="text" id="create-motd" placeholder="My Minecraft server" maxlength="120" /></div>
+          <div class="option-toggles">
+            <label class="option-toggle"><input type="checkbox" id="create-pvp" checked /><span class="toggle-mark"></span><span><strong>PvP</strong><small>Players can fight</small></span></label>
+            <label class="option-toggle"><input type="checkbox" id="create-online-mode" checked /><span class="toggle-mark"></span><span><strong>Online mode</strong><small>Verify player accounts</small></span></label>
+            <label class="option-toggle"><input type="checkbox" id="create-command-blocks" /><span class="toggle-mark"></span><span><strong>Command blocks</strong><small>Allow automation blocks</small></span></label>
+            <label class="option-toggle"><input type="checkbox" id="create-whitelist" /><span class="toggle-mark"></span><span><strong>Whitelist</strong><small>Only approved players</small></span></label>
+          </div>
+          <div class="form-group">
+            <label>RAM (MB)</label>
+            <input type="range" id="create-ram" min="1024" max="16384" step="512" value="2048" />
+            <div class="ram-value"><span id="ram-display">2048</span> MB</div>
+          </div>
+          <button class="btn primary large" id="btn-create" onclick="createServer()">Download & Create</button>
+          <div id="create-status" class="status-msg"></div>
+        </div>
+        <div class="import-card">
+          <div><span class="eyebrow">Existing server</span><h2>Import server folder</h2><p>Bring in an existing Minecraft server while preserving worlds, plugins, mods, and configs.</p></div>
+          <div class="import-controls"><input type="text" id="import-name" placeholder="Server name (optional)" maxlength="40" /><label class="btn small primary import-folder-label">Choose folder<input id="import-folder" type="file" webkitdirectory directory multiple hidden /></label><button class="btn small" onclick="importServerFolder()">Import folder</button></div>
+          <div id="import-status" class="status-msg"></div>
+        </div>
+      </section>
+
+      <section id="tab-browser" class="tab">
+        <header class="page-header">
+          <h1>Plugins & Mods</h1>
+          <p class="subtitle">Modrinth · install to selected server</p>
+        </header>
+        <div class="browser-controls">
+          <input type="text" id="search-q" placeholder="Search..." />
+          <select id="search-type"><option value="plugin">Plugins</option><option value="mod">Mods</option></select>
+          <select id="search-server"><option value="">Target server...</option></select>
+          <button class="btn primary" onclick="searchModrinth()">Search</button>
+        </div>
+        <div class="featured-heading"><span class="eyebrow">Community picks</span><span>Ranked by total downloads on Modrinth</span></div>
+        <div class="featured-grid">
+          <section class="featured-section"><div class="featured-section-heading"><h2>Most downloaded plugins</h2><span class="badge type">PLUGINS</span></div><div id="featured-plugins" class="featured-list"><div class="loading">Loading plugins...</div></div></section>
+          <section class="featured-section"><div class="featured-section-heading"><h2>Most downloaded mods</h2><span class="badge type">MODS</span></div><div id="featured-mods" class="featured-list"><div class="loading">Loading mods...</div></div></section>
+        </div>
+        <div id="search-results" class="results-list"><div class="empty">Search above</div></div>
+      </section>
+
+      <section id="tab-settings" class="tab">
+        <header class="page-header"><div><span class="eyebrow">Workspace preferences</span><h1>Settings</h1></div></header>
+        <div class="settings-layout">
+          <section class="settings-card">
+            <div class="settings-card-heading"><div><span class="eyebrow">Appearance</span><h2>Make it yours</h2></div><span class="settings-symbol">Aa</span></div>
+            <div class="setting-row"><div><strong>Website theme</strong><small>Choose the atmosphere for the control center.</small></div><select class="setting-input" data-setting="theme"><option value="control">Control room</option><option value="midnight">Midnight</option><option value="light">Paper light</option><option value="forest">Deep forest</option><option value="ocean">Signal ocean</option><option value="sunset">Redstone sunset</option><option value="slate">Industrial slate</option><option value="sandstone">Warm sandstone</option></select></div>
+            <div class="setting-row"><div><strong>Interface font</strong><small>Change the personality of the dashboard.</small></div><select class="setting-input" data-setting="font"><option value="dm">DM Sans</option><option value="manrope">Manrope</option><option value="space">Space Grotesk</option><option value="rajdhani">Rajdhani</option><option value="orbitron">Orbitron</option><option value="pixel">Press Start 2P</option><option value="terminal">VT323</option></select></div>
+            <div class="setting-row"><div><strong>Accent color</strong><small>Choose the highlight color used across the manager.</small></div><select class="setting-input" data-setting="accent"><option value="lime">Lime</option><option value="blue">Blue</option><option value="amber">Amber</option></select></div>
+            <div class="setting-row"><div><strong>Interface density</strong><small>Control the spacing of cards and panels.</small></div><select class="setting-input" data-setting="density"><option value="comfortable">Comfortable</option><option value="compact">Compact</option></select></div>
+            <div class="setting-row"><div><strong>Motion</strong><small>Keep subtle page and hover transitions enabled.</small></div><label class="setting-switch"><input class="setting-input" data-setting="motion" type="checkbox" checked /><span></span></label></div>
+          </section>
+          <section class="settings-card">
+            <div class="settings-card-heading"><div><span class="eyebrow">Behavior</span><h2>How it works</h2></div><span class="settings-symbol">⚙</span></div>
+            <div class="setting-row"><div><strong>Confirm destructive actions</strong><small>Ask before deleting servers, files, or restarting.</small></div><label class="setting-switch"><input class="setting-input" data-setting="confirmActions" type="checkbox" checked /><span></span></label></div>
+            <div class="setting-row"><div><strong>Refresh server list</strong><small>Automatically check server status in the background.</small></div><label class="setting-switch"><input class="setting-input" data-setting="autoRefresh" type="checkbox" checked /><span></span></label></div>
+            <div class="setting-row"><div><strong>Refresh interval</strong><small>How often the server overview updates.</small></div><select class="setting-input" data-setting="refreshInterval"><option value="10">10 seconds</option><option value="30">30 seconds</option><option value="60">1 minute</option></select></div>
+            <div class="setting-row"><div><strong>Auto-ping servers</strong><small>Measure Minecraft latency and show it on server cards.</small></div><label class="setting-switch"><input class="setting-input" data-setting="autoPing" type="checkbox" checked /><span></span></label></div>
+            <div class="setting-row"><div><strong>Ping interval</strong><small>How often live latency is measured.</small></div><select class="setting-input" data-setting="pingInterval"><option value="2">2 seconds</option><option value="5">5 seconds</option><option value="10">10 seconds</option></select></div>
+          </section>
+        </div>
+        <div class="settings-footer"><span>Preferences are saved in this browser only.</span><button class="btn danger small" onclick="resetSettings()">Reset preferences</button></div>
+      </section>
+
+      <section id="tab-detail" class="tab">
+        <header class="page-header">
+          <button class="btn ghost" onclick="switchTab('servers')">← Back</button>
+          <h1 id="detail-title">Server</h1>
+          <div class="header-actions">
+            <button class="btn success" onclick="startSelected()">▶ Start</button>
+            <button class="btn danger" onclick="stopSelected()">⏹ Stop</button>
+            <button class="btn warning" onclick="restartSelected()">↻ Restart</button>
+            <button class="btn accent" onclick="togglePlayit()">Playit.gg</button>
+            <button class="btn ghost" onclick="deleteSelected()">🗑 Delete</button>
+          </div>
+        </header>
+
+        <div class="detail-tabs">
+          <button class="dtab active" data-dtab="console">Console</button>
+          <button class="dtab" data-dtab="commands">Commands Wiki</button>
+          <button class="dtab" data-dtab="players">Players</button>
+          <button class="dtab" data-dtab="files">Files</button>
+          <button class="dtab" data-dtab="props">Properties</button>
+          <button class="dtab" data-dtab="anticheat">Anti-Cheat</button>
+          <button class="dtab" data-dtab="plugins">Plugins/Mods</button>
+        </div>
+
+        <div id="dtab-commands" class="dtab-panel">
+          <div class="panel-card command-wiki">
+            <div class="wiki-heading"><div><span class="eyebrow">Reference</span><h2>All Minecraft commands</h2></div><span class="badge type">JAVA EDITION</span></div>
+            <div class="wiki-controls"><input id="command-search" type="text" placeholder="Search commands, usage, or category..." /><select id="command-category"><option value="all">All categories</option></select></div>
+            <div id="command-list" class="command-list"></div>
+          </div>
+        </div>
+
+        <div id="dtab-console" class="dtab-panel active">
+          <div class="detail-grid">
+            <div class="console-card">
+              <div class="console-header">
+                <span class="console-title"><span>Live Console</span><span id="console-live" class="live-indicator"><i></i>Live</span></span>
+                <span class="console-tools"><span id="detail-status" class="badge offline">Offline</span><button class="console-tool" onclick="clearConsole()" title="Clear console output">Clear</button><button id="console-refresh-toggle" class="console-tool" onclick="toggleConsoleRefresh()" title="Pause live updates">Pause</button><button class="console-tool" onclick="downloadConsoleLog()" title="Download console log">Save log</button></span>
+              </div>
+              <div id="console-output" class="console"></div>
+              <div class="console-input">
+                <input type="text" id="cmd-input" placeholder="Command + Enter..." autocomplete="off" />
+                <button class="btn small" onclick="sendCmd()">Send</button>
+              </div>
+            </div>
+            <div class="side-panel">
+              <div class="info-card">
+                <h3>Info</h3>
+                <div class="detail-logo-row"><div id="detail-logo" class="server-avatar avatar-lime">MC</div><div><strong>Server logo</strong><small>Recommended: 256 × 256 px</small><label class="btn small logo-upload-label">Import logo<input id="logo-upload" type="file" accept="image/png,image/jpeg,image/webp" hidden onchange="importServerLogo()" /></label></div></div>
+                <div id="detail-info"></div>
+              </div>
+              <div class="info-card playit-card">
+                <div class="playit-heading"><h3>Playit.gg tunnel</h3><span id="playit-status" class="badge offline">Not configured</span></div>
+                <p class="hint">Expose this server without port forwarding. Install the Playit agent, then paste its secret here.</p>
+                <div class="form-group"><label for="playit-executable">Agent command or path</label><input type="text" id="playit-executable" value="playit" placeholder="playit.exe" /></div>
+                <div class="form-group"><label for="playit-secret">Agent secret</label><input type="password" id="playit-secret" placeholder="Paste Playit secret" autocomplete="off" /></div>
+                <div class="playit-actions"><button class="btn small" onclick="savePlayit()">Save settings</button><button class="btn success small" onclick="startPlayit()">Start tunnel</button><button class="btn danger small" onclick="stopPlayit()">Stop</button></div>
+                <pre id="playit-log" class="playit-log"></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="dtab-players" class="dtab-panel">
+          <div class="panel-card">
+            <div class="player-actions">
+              <input type="text" id="player-name" placeholder="Player name" autocomplete="off" />
+              <button class="btn success small" onclick="playerAction('op')">OP</button>
+              <button class="btn small" onclick="playerAction('deop')">DeOP</button>
+              <button class="btn warning small" onclick="playerAction('kick')">Kick</button>
+              <button class="btn danger small" onclick="playerAction('ban')">Ban</button>
+              <button class="btn small" onclick="playerAction('pardon')">Pardon</button>
+              <button class="btn small" onclick="playerAction('whitelist_add')">WL Add</button>
+              <button class="btn small" onclick="playerAction('whitelist_remove')">WL Remove</button>
+              <button class="btn small" onclick="playerAction('whitelist_on')">WL On</button>
+              <button class="btn small" onclick="playerAction('whitelist_off')">WL Off</button>
+            </div>
+            <div class="troll-panel">
+              <div class="active-players-heading"><h3>Playful controls</h3><span class="badge type">ADMIN ONLY</span></div>
+              <div class="player-actions"><select id="troll-action"><option value="fake_op">Fake OP message</option><option value="scare">Warden sound</option><option value="blind">Blindness</option><option value="slow">Slowness</option><option value="message">Custom message</option></select><input type="text" id="troll-value" placeholder="Message (for custom message)" /><button class="btn warning small" onclick="runTrollAction()">Run prank</button></div>
+            </div>
+            <div class="active-players-panel">
+              <div class="active-players-heading"><h3>Active players</h3><span id="active-player-count" class="badge offline">0 online</span></div>
+              <div id="active-player-list" class="active-player-list"><div class="empty">No players online</div></div>
+            </div>
+            <p class="hint">Select an active player or enter a name. Server must be <strong>online</strong> for actions.</p>
+            <div class="player-lists">
+              <div><h4>Operators</h4><div id="ops-list" class="file-list"></div></div>
+              <div><h4>Whitelist</h4><div id="wl-list" class="file-list"></div></div>
+              <div><h4>Banned</h4><div id="ban-list" class="file-list"></div></div>
+            </div>
+            <button class="btn small" onclick="loadPlayers()">↻ Refresh lists</button>
+          </div>
+        </div>
+
+        <div id="dtab-files" class="dtab-panel">
+          <div class="panel-card">
+            <div class="fs-toolbar">
+              <button class="btn small" onclick="fsUp()">↑ Up</button>
+              <span id="fs-path" class="fs-path">/</span>
+              <button class="btn small" onclick="fsNewFolder()">New folder</button>
+              <label class="btn small upload-btn">Upload <input type="file" id="fs-upload" hidden onchange="fsUpload()" /></label>
+            </div>
+            <div id="fs-list" class="fs-list"></div>
+            <div id="fs-editor" class="fs-editor" style="display:none">
+              <div class="fs-editor-bar">
+                <span id="fs-edit-name"></span>
+                <button class="btn primary small" onclick="fsSave()">Save</button>
+                <button class="btn small" onclick="fsCloseEditor()">Close</button>
+              </div>
+              <textarea id="fs-content" spellcheck="false"></textarea>
+            </div>
+          </div>
+        </div>
+
+        <div id="dtab-props" class="dtab-panel">
+          <div class="panel-card">
+            <div class="editor-toolbar"><label for="props-mode">Editor mode</label><select id="props-mode" onchange="togglePropsMode()"><option value="form">Options</option><option value="raw">Edit code</option></select></div>
+            <div id="props-form" class="props-form"></div>
+            <textarea id="props-raw" class="code-editor" spellcheck="false" style="display:none"></textarea>
+            <button class="btn primary" onclick="saveProps()">Save Properties</button>
+            <button class="btn primary" id="save-raw-props" onclick="saveRawProps()" style="display:none">Save Code</button>
+            <p class="hint">Restart server for some settings to apply.</p>
+          </div>
+        </div>
+
+        <div id="dtab-anticheat" class="dtab-panel">
+          <div class="panel-card anti-cheat-panel">
+            <div class="wiki-heading"><div><span class="eyebrow">Server protection</span><h2>Anti-cheat control</h2></div><span id="anticheat-plugin-status" class="badge offline">Checking plugins</span></div>
+            <p class="hint">These are manager policies and alert controls. Detection itself requires a compatible anti-cheat plugin such as Grim, Matrix, or NoCheatPlus.</p>
+            <div class="anti-cheat-grid">
+              <label class="toggle-card"><input type="checkbox" id="ac-enabled" /><span><strong>Protection enabled</strong><small>Enable this server profile</small></span></label>
+              <label class="toggle-card"><input type="checkbox" id="ac-movement" /><span><strong>Movement checks</strong><small>Speed, fly, step, no-fall</small></span></label>
+              <label class="toggle-card"><input type="checkbox" id="ac-combat" /><span><strong>Combat checks</strong><small>Reach, autoclick, aim</small></span></label>
+              <label class="toggle-card"><input type="checkbox" id="ac-alerts" checked /><span><strong>Admin alerts</strong><small>Send violations to operators</small></span></label>
+            </div>
+            <div class="form-row"><div class="form-group"><label for="ac-threshold">Alert threshold</label><input id="ac-threshold" type="number" min="1" max="100" value="5" /></div><div class="form-group"><label for="ac-command">Alert command</label><input id="ac-command" type="text" value="notify" placeholder="notify" /></div></div>
+            <button class="btn primary" onclick="saveAntiCheat()">Save protection profile</button>
+            <div class="vulcan-command-box">
+              <div class="settings-card-heading"><div><span class="eyebrow">Vulcan command center</span><h2>Anti-cheat commands</h2></div><span class="badge type">CONSOLE</span></div>
+              <div class="form-row"><div class="form-group"><label for="vulcan-command">Command</label><select id="vulcan-command" onchange="updateVulcanPreview()"><option value="vulcan alerts">Toggle alerts</option><option value="vulcan verbose">Toggle verbose</option><option value="vulcan checks">View checks</option><option value="vulcan profile {player}">Player profile</option><option value="vulcan violations {player}">Player violations</option><option value="vulcan cps {player}">Player CPS</option><option value="vulcan connection {player}">Connection info</option><option value="vulcan freeze {player}">Freeze or unfreeze</option><option value="vulcan ban {player}">Vulcan ban</option><option value="vulcan reset {player}">Reset violations</option><option value="vulcan disablecheck {player}">Disable check</option><option value="vulcan enablecheck {player}">Enable check</option><option value="jday add {player}">Add to Judgement Day</option><option value="jday remove {player}">Remove from Judgement Day</option><option value="jday list">List Judgement Day</option><option value="jday execute">Execute Judgement Day</option><option value="logs {player} 1">View violation logs</option><option value="punishlogs {player} 1">View punishment logs</option><option value="vulcan reload">Reload Vulcan</option><option value="vulcan testalert">Test alert</option></select></div><div class="form-group"><label for="vulcan-player">Player or check target</label><input id="vulcan-player" type="text" placeholder="Player or check name" oninput="updateVulcanPreview()" /></div></div>
+              <div class="command-preview"><code id="vulcan-preview">/vulcan alerts</code><button class="btn warning small" onclick="sendVulcanCommand()">Run command</button></div>
+            </div>
+          </div>
+        </div>
+
+        <div id="dtab-plugins" class="dtab-panel">
+          <div class="panel-card two-col">
+            <div>
+              <h3>Plugins</h3>
+              <div id="plugins-list" class="file-list"></div>
+            </div>
+            <div>
+              <h3>Mods</h3>
+              <div id="mods-list" class="file-list"></div>
+            </div>
+          </div>
+          <div class="panel-card component-actions"><h3>Component controls</h3><p class="hint">Reload plugin classes without a full restart, or restart the server to apply mod changes.</p><button class="btn success small" onclick="reloadComponents()">Reload plugins</button><button class="btn warning small" onclick="restartSelected()">Restart server</button></div>
+          <div class="panel-card plugin-config-panel">
+            <div class="wiki-heading"><div><span class="eyebrow">Plugin workspace</span><h2>Configuration files</h2></div><button class="btn small" onclick="loadPluginConfigs()">Refresh</button></div>
+            <p class="hint">Edit YAML, YML, and JSON plugin configuration files without leaving the manager.</p>
+            <div class="plugin-config-layout"><div id="plugin-config-list" class="plugin-config-list"><div class="empty">No plugin configs found</div></div><div class="plugin-config-editor"><div class="fs-editor-bar"><span id="plugin-config-name">Select a config file</span><button class="btn primary small" onclick="savePluginConfig()">Save</button><button class="btn small" onclick="downloadPluginConfig()">Download</button></div><textarea id="plugin-config-content" spellcheck="false" placeholder="Choose a plugin configuration file to edit..."></textarea></div></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+  
+  <div id="toast-container" class="toast-container"></div>
+  
+  <script src="/static/js/app.js"></script>
+</body>
+</html>
