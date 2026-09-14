@@ -12,8 +12,9 @@ let detailPingInFlight = false;
 let consoleAutoRefresh = true;
 let devReloadVersion = null;
 let createLogo = { mark: "MC", style: "avatar-lime" };
+let backupJobTimer = null;
 const OWNER_WATERMARK = "MC-SERVER-MANAGER / Mrkraps aka orgeco";
-const defaultSettings = { theme: "control", font: "dm", accent: "lime", density: "comfortable", motion: true, confirmActions: true, autoRefresh: true, refreshInterval: "30", autoPing: true, pingInterval: "5", consoleAutoRefresh: true };
+const defaultSettings = { theme: "control", font: "dm", accent: "lime", density: "comfortable", motion: true, confirmActions: true, autoRefresh: true, refreshInterval: "30", autoPing: true, pingInterval: "5", consoleAutoRefresh: true, backdrop3d: true };
 
 function getSettings() {
   try { return { ...defaultSettings, ...JSON.parse(localStorage.getItem("mc-manager-settings") || "{}") }; }
@@ -43,6 +44,7 @@ function applySettings() {
     if (document.getElementById("tab-servers")?.classList.contains("active")) refreshServerPingsFromCards();
   }, Number(settings.pingInterval) * 1000) : null;
   if (currentServerId && document.getElementById("tab-detail")?.classList.contains("active")) startDetailPing(currentServerId);
+  window.mcScene?.applyPreferences({ enabled: settings.backdrop3d, motion: settings.motion });
 }
 
 function initSettings() {
@@ -109,8 +111,21 @@ function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, m => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[m]));
 }
 
+async function requestJson(url, options = {}) {
+  const response = await fetch(url, options);
+  const body = await response.text();
+  if (!(response.headers.get("content-type") || "").includes("json")) {
+    const detail = body.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 160);
+    throw new Error(`The manager returned ${response.status} ${response.statusText || "error"}${detail ? ` - ${detail}` : ""}`);
+  }
+  let data;
+  try { data = JSON.parse(body); } catch { throw new Error("The manager sent a malformed response"); }
+  if (!response.ok && data.error) throw new Error(data.error);
+  return data;
+}
+
 function switchTab(name) {
-  if (name !== "detail") stopDetailPing();
+  if (name !== "detail") { stopDetailPing(); stopBackupPolling(); }
   document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
   document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
   const tab = document.getElementById("tab-" + name);
@@ -118,7 +133,9 @@ function switchTab(name) {
   const btn = document.querySelector(`.nav-btn[data-tab="${name}"]`);
   if (btn) btn.classList.add("active");
   if (name === "servers") loadServers();
-  if (name === "create") loadVersions();
+  if (name === "create") { loadVersions(); loadHostMemory(); }
+  if (name === "map") window.mcMap?.onShow();
+  else window.mcMap?.onHide();
   if (name === "browser") {
     loadServerSelect();
     loadFeatured();
@@ -174,16 +191,16 @@ async function loadServers() {
       el.innerHTML = '<div class="empty">No servers in this view. Create one or switch filters.</div>';
       return;
     }
-    el.innerHTML = filtered.map(s => `
-      <div class="server-card ${s.running ? 'online' : 'offline'}" onclick="openServer('${s.id}')">
+    el.innerHTML = filtered.map((s, i) => `
+      <div class="server-card ${s.running ? 'online' : 'offline'}" style="--i:${i}" onclick="openServer('${s.id}')">
         <div class="card-top">
           <div class="server-status">
             <span class="status-dot ${s.running ? 'online' : 'offline'}"></span>
             <span class="badge ${s.running ? "online" : "offline"}">${s.running ? "Online" : "Offline"}</span>
           </div>
           <div class="card-actions">
-            <button class="mini-btn" onclick="event.stopPropagation(); ${s.running ? `stopServerById('${s.id}')` : `startServerById('${s.id}')`};">${s.running ? 'Stop' : 'Start'}</button>
-            <button class="mini-btn danger" onclick="event.stopPropagation(); deleteServerById('${s.id}')">Delete</button>
+            <button class="mini-btn" onclick="event.stopPropagation(); togglePowerFromCard(this, '${s.id}', ${s.running})">${s.running ? '⏹ Stop' : '▶ Start'}</button>
+            <button class="mini-btn danger" onclick="event.stopPropagation(); deleteServerFromCard(this, '${s.id}')">✕ Delete</button>
           </div>
         </div>
         <div class="server-name-line">${s.logo?.file ? `<img class="server-avatar server-avatar-image" src="/api/server/${encodeURIComponent(s.id)}/logo/${encodeURIComponent(s.logo.file)}" alt="" />` : `<div class="server-avatar ${escapeHtml(s.logo?.style || 'avatar-lime')}" aria-hidden="true">${escapeHtml(s.logo?.mark || s.name.slice(0, 2).toUpperCase())}</div>`}<h3>${escapeHtml(s.name)}</h3></div>
@@ -224,42 +241,46 @@ async function refreshServerPingsFromCards() {
   } catch {}
 }
 
-async function startServerById(id) {
-  const data = await (await fetch(`/api/server/${id}/start`, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: "{}"
-  })).json();
-  if (data.ok) {
-    showToast("Server started", "success");
-    loadServers();
-    if (currentServerId === id) updateStatusBadge(true);
-  } else {
-    showToast(data.message || "Failed to start", "error");
-  }
-}
-
-async function stopServerById(id) {
-  const data = await (await fetch(`/api/server/${id}/stop`, { method: "POST" })).json();
-  if (data.ok) {
-    showToast("Server stopped", "success");
-    loadServers();
-    if (currentServerId === id) updateStatusBadge(false);
-  } else {
-    showToast(data.message || "Failed to stop", "warning");
-  }
-}
-
-async function deleteServerById(id) {
-  if (getSettings().confirmActions && !confirm("Delete this server permanently?")) return;
+async function togglePowerFromCard(button, id, running) {
+  if (button.disabled) return;
+  button.disabled = true;
+  button.textContent = running ? "Stopping..." : "Starting...";
   try {
-    await fetch(`/api/server/${id}/delete`, { method: "POST" });
+    const data = await (await fetch(`/api/server/${id}/${running ? "stop" : "start"}`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: "{}"
+    })).json();
+    if (data.ok) {
+      showToast(running ? "Server stopped" : "Server started", "success");
+      if (currentServerId === id) updateStatusBadge(!running);
+    } else {
+      showToast(data.message || `Failed to ${running ? "stop" : "start"}`, running ? "warning" : "error");
+    }
+  } catch (error) {
+    showToast(error.message, "error");
+  } finally {
+    loadServers();
+  }
+}
+
+async function deleteServerFromCard(button, id) {
+  if (button.disabled) return;
+  if (getSettings().confirmActions && !confirm("Delete this server permanently? This cannot be undone.")) return;
+  button.disabled = true;
+  button.textContent = "Deleting...";
+  try {
+    const data = await (await fetch(`/api/server/${id}/delete`, { method: "POST" })).json();
+    if (!data.ok) throw new Error(data.error || "Could not delete this server");
     showToast("Server deleted", "success");
     if (currentServerId === id) {
       currentServerId = null;
       stopConsolePolling();
     }
+  } catch (error) {
+    showToast(error.message, "error");
+    button.disabled = false;
+    button.textContent = "✕ Delete";
+  } finally {
     loadServers();
-  } catch (e) {
-    showToast("Error deleting server", "error");
   }
 }
 
@@ -269,23 +290,101 @@ document.getElementById("create-name").addEventListener("input", updateCreateLog
 document.getElementById("create-max-players").addEventListener("input", event => {
   document.getElementById("max-players-display").textContent = event.target.value;
 });
+const portHint = document.getElementById("port-hint");
+const portHintText = portHint.textContent;
+
 document.getElementById("create-port").addEventListener("input", event => {
   const port = Number(event.target.value);
-  event.target.setCustomValidity(port >= 1024 && port <= 65535 ? "" : "Use a port between 1024 and 65535");
+  const blank = event.target.value === "";
+  const valid = port >= 1024 && port <= 65535;
+  event.target.setCustomValidity(valid ? "" : "Use a port between 1024 and 65535");
+  event.target.classList.toggle("invalid", !valid && !blank);
+  event.target.setAttribute("aria-invalid", valid || blank ? "false" : "true");
+  portHint.classList.toggle("hint-warn", !valid && !blank);
+  portHint.textContent = valid || blank ? portHintText : `${event.target.value} is outside 1024–65535`;
+  updateCreateReview();
+});
+
+["create-name", "create-type", "create-version", "create-max-players"].forEach(id => {
+  document.getElementById(id).addEventListener("input", updateCreateReview);
 });
 document.getElementById("import-folder").addEventListener("change", event => {
   const label = document.querySelector(".import-folder-label");
   const count = event.target.files?.length || 0;
   if (label) label.childNodes[0].textContent = count ? `${count} files selected` : "Choose folder";
 });
-document.getElementById("create-ram").addEventListener("input", e => {
-  document.getElementById("ram-display").textContent = e.target.value;
+
+const RAM_MIN = 512;
+const RAM_HARD_MAX = 65536;
+const RAM_STEP = 256;
+let ramCeiling = 16384;
+let ramHint = "Pick an amount your machine can spare.";
+
+function formatRam(mb) {
+  const amount = Number(mb) || 0;
+  if (amount < 1024) return `${amount} MB`;
+  const gb = amount / 1024;
+  return `${Number.isInteger(gb) ? gb : gb.toFixed(1)} GB`;
+}
+
+function setCreateRam(value, source) {
+  const exact = document.getElementById("create-ram-exact");
+  const typed = Number(value);
+  const amount = Math.max(RAM_MIN, Math.min(RAM_HARD_MAX, Math.round((typed || 2048) / RAM_STEP) * RAM_STEP));
+  // Only the typed field can hold an out-of-range value; presets and the clamp above never produce one.
+  const outOfRange = source === "exact" && value !== "" && (!Number.isFinite(typed) || typed < RAM_MIN || typed > RAM_HARD_MAX);
+  if (source !== "exact") exact.value = amount;
+  exact.classList.toggle("invalid", outOfRange);
+  exact.setAttribute("aria-invalid", outOfRange ? "true" : "false");
+  document.getElementById("ram-display").textContent = formatRam(amount);
+  document.querySelectorAll(".ram-preset").forEach(preset => preset.classList.toggle("active", Number(preset.dataset.ram) === amount));
+  const hint = document.getElementById("ram-hint");
+  hint.className = "field-hint";
+  if (outOfRange) {
+    hint.classList.add("hint-warn");
+    hint.textContent = `Enter between ${formatRam(RAM_MIN)} and ${formatRam(RAM_HARD_MAX)}.`;
+  } else if (amount > ramCeiling) {
+    hint.innerHTML = `${ramHint}<br /><span class="hint-warn">${formatRam(amount)} is more than this machine can comfortably give a server.</span>`;
+  } else {
+    hint.textContent = ramHint;
+  }
+  updateCreateReview();
+  return amount;
+}
+
+function currentCreateRam() {
+  return Math.max(RAM_MIN, Math.min(RAM_HARD_MAX, Number(document.getElementById("create-ram-exact").value) || 2048));
+}
+
+async function loadHostMemory() {
+  try {
+    const data = await requestJson("/api/system/memory");
+    ramCeiling = data.suggested || ramCeiling;
+    document.querySelectorAll(".ram-preset").forEach(preset => {
+      const beyond = Boolean(data.total) && Number(preset.dataset.ram) > data.total;
+      preset.classList.toggle("beyond", beyond);
+      preset.title = beyond ? "More memory than this machine has installed" : `Allocate ${preset.textContent} to the server`;
+    });
+    ramHint = data.total
+      ? `${formatRam(data.total)} installed, ${formatRam(data.available)} free right now. Leave 1–2 GB for the rest of the system.`
+      : "Installed memory could not be read. Pick an amount your machine can spare.";
+  } catch {
+    ramHint = "Installed memory could not be read. Pick an amount your machine can spare.";
+  }
+  setCreateRam(currentCreateRam(), "init");
+}
+
+document.getElementById("create-ram-exact").addEventListener("input", event => setCreateRam(event.target.value, "exact"));
+document.getElementById("create-ram-exact").addEventListener("blur", () => setCreateRam(currentCreateRam(), "blur"));
+document.getElementById("ram-presets").addEventListener("click", event => {
+  const preset = event.target.closest(".ram-preset");
+  if (preset) setCreateRam(preset.dataset.ram, "preset");
 });
 
 async function loadVersions() {
   const type = document.getElementById("create-type").value;
   const sel = document.getElementById("create-version");
-  sel.innerHTML = "<option>Loading...</option>";
+  sel.innerHTML = '<option value="">Loading...</option>';
   try {
     const versions = await (await fetch(`/api/versions/${type}`)).json();
     sel.innerHTML = versions.length
@@ -294,13 +393,23 @@ async function loadVersions() {
   } catch {
     sel.innerHTML = '<option value="">Error fetching versions</option>';
   }
+  updateCreateReview();
+}
+
+function updateCreateReview() {
+  const version = document.getElementById("create-version").value;
+  document.getElementById("review-name").textContent = document.getElementById("create-name").value.trim() || "unnamed";
+  document.getElementById("review-platform").textContent = `${document.getElementById("create-type").value}${version ? ` ${version}` : ""}`;
+  document.getElementById("review-port").textContent = document.getElementById("create-port").value || "—";
+  document.getElementById("review-ram").textContent = formatRam(currentCreateRam());
+  document.getElementById("review-slots").textContent = document.getElementById("create-max-players").value;
 }
 
 async function createServer() {
   const name = document.getElementById("create-name").value.trim();
   const type = document.getElementById("create-type").value;
   const version = document.getElementById("create-version").value;
-  const ram = parseInt(document.getElementById("create-ram").value, 10);
+  const ram = currentCreateRam();
   const options = {
     port: parseInt(document.getElementById("create-port").value, 10),
     max_players: parseInt(document.getElementById("create-max-players").value, 10),
@@ -314,15 +423,29 @@ async function createServer() {
   };
   const status = document.getElementById("create-status");
   const btn = document.getElementById("btn-create");
-  if (!name || !version) {
+  if (!name) {
     status.className = "status-msg show err";
-    status.textContent = "Name and version required";
+    status.textContent = "Give the server a name first";
+    document.getElementById("create-name").focus();
+    return;
+  }
+  if (!version) {
+    status.className = "status-msg show err";
+    status.textContent = "Pick a Minecraft version first";
+    document.getElementById("create-version").focus();
     return;
   }
   if (options.port < 1024 || options.port > 65535) {
     status.className = "status-msg show err";
     status.textContent = "Server port must be between 1024 and 65535";
     document.getElementById("create-port").focus();
+    return;
+  }
+  const typedRam = Number(document.getElementById("create-ram-exact").value);
+  if (!Number.isFinite(typedRam) || typedRam < RAM_MIN || typedRam > RAM_HARD_MAX) {
+    status.className = "status-msg show err";
+    status.textContent = `Memory must be between ${formatRam(RAM_MIN)} and ${formatRam(RAM_HARD_MAX)}`;
+    document.getElementById("create-ram-exact").focus();
     return;
   }
   btn.disabled = true;
@@ -340,6 +463,7 @@ async function createServer() {
       status.className = "status-msg show ok";
       status.textContent = `Created "${name}"`;
       document.getElementById("create-name").value = "";
+      updateCreateReview();
       showToast(`Server ${name} created successfully!`, 'success');
       setTimeout(() => switchTab("servers"), 1000);
     } else {
@@ -356,35 +480,135 @@ async function createServer() {
   }
 }
 
+const IMPORT_BATCH_BYTES = 24 * 1024 * 1024;
+const IMPORT_BATCH_FILES = 150;
+const IMPORT_FILE_LIMIT = 240 * 1024 * 1024;
+
+function formatBytes(bytes) {
+  const units = ["B", "KB", "MB", "GB"];
+  let value = Number(bytes) || 0;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit += 1; }
+  return `${value < 10 && unit ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
+}
+
+function setTaskProgress(prefix, percent, text) {
+  const wrapper = document.getElementById(`${prefix}-progress`);
+  if (!wrapper) return;
+  wrapper.hidden = false;
+  const fill = document.getElementById(`${prefix}-bar-fill`);
+  const clamped = Math.max(0, Math.min(100, percent));
+  fill.style.width = `${clamped}%`;
+  fill.classList.toggle("active", clamped < 100);
+  document.getElementById(`${prefix}-progress-text`).textContent = text;
+}
+
+function hideTaskProgress(prefix) {
+  const wrapper = document.getElementById(`${prefix}-progress`);
+  if (wrapper) wrapper.hidden = true;
+  const fill = document.getElementById(`${prefix}-bar-fill`);
+  if (fill) fill.classList.remove("active");
+}
+
+function importRootFolder(files) {
+  const roots = new Set(files.map(file => (file.webkitRelativePath || file.name).replace(/\\/g, "/").split("/")[0]));
+  const nested = files.every(file => (file.webkitRelativePath || file.name).includes("/"));
+  return roots.size === 1 && nested ? [...roots][0] : "";
+}
+
+function importRelativePath(file, root) {
+  const path = (file.webkitRelativePath || file.name).replace(/\\/g, "/");
+  return root && path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
+}
+
+function buildImportBatches(files) {
+  const batches = [];
+  let batch = [];
+  let size = 0;
+  for (const file of files) {
+    if (batch.length && (size + file.size > IMPORT_BATCH_BYTES || batch.length >= IMPORT_BATCH_FILES)) {
+      batches.push(batch);
+      batch = [];
+      size = 0;
+    }
+    batch.push(file);
+    size += file.size;
+  }
+  if (batch.length) batches.push(batch);
+  return batches;
+}
+
 async function importServerFolder() {
   const input = document.getElementById("import-folder");
-  const files = input.files;
+  const button = document.getElementById("btn-import");
   const status = document.getElementById("import-status");
-  if (!files?.length) {
+  const files = [...(input.files || [])];
+  const name = document.getElementById("import-name").value.trim();
+  if (!files.length) {
     status.className = "status-msg show err";
     status.textContent = "Choose an existing server folder first";
     return;
   }
-  const form = new FormData();
-  form.append("name", document.getElementById("import-name").value.trim());
-  [...files].forEach(file => form.append("files", file, file.webkitRelativePath || file.name));
+  const oversized = files.find(file => file.size > IMPORT_FILE_LIMIT);
+  if (oversized) {
+    status.className = "status-msg show err";
+    status.textContent = `"${oversized.name}" is ${formatBytes(oversized.size)}, above the ${formatBytes(IMPORT_FILE_LIMIT)} single-file limit. Remove or archive it, then import again.`;
+    return;
+  }
+  const root = importRootFolder(files);
+  const batches = buildImportBatches(files);
+  const totalBytes = files.reduce((sum, file) => sum + file.size, 0) || 1;
+  let token = null;
+  button.disabled = true;
   status.className = "status-msg show";
-  status.textContent = "Importing server files...";
+  status.textContent = `Uploading ${files.length} files (${formatBytes(totalBytes)})...`;
+  setTaskProgress("import", 0, "Preparing upload...");
   try {
-    const data = await (await fetch("/api/import", { method: "POST", body: form })).json();
+    const session = await requestJson("/api/import/start", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name })
+    });
+    if (!session.ok) throw new Error(session.error || "Could not start the import");
+    token = session.token;
+    let sent = 0;
+    for (const batch of batches) {
+      const form = new FormData();
+      form.append("token", token);
+      batch.forEach(file => form.append("files", file, importRelativePath(file, root)));
+      const result = await requestJson("/api/import/upload", { method: "POST", body: form });
+      if (!result.ok) throw new Error(result.error || "Upload failed");
+      sent += batch.reduce((sum, file) => sum + file.size, 0);
+      setTaskProgress("import", (sent / totalBytes) * 100, `Uploaded ${formatBytes(sent)} of ${formatBytes(totalBytes)}`);
+    }
+    setTaskProgress("import", 100, "Building the server entry...");
+    const data = await requestJson("/api/import/finish", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, name })
+    });
     if (!data.ok) throw new Error(data.error || "Import failed");
+    token = null;
     status.className = "status-msg show ok";
-    status.textContent = `Imported "${data.meta.name}"`;
+    status.textContent = `Imported "${data.meta.name}" with ${data.files} files`;
     showToast("Server folder imported", "success");
-    setTimeout(() => switchTab("servers"), 700);
+    input.value = "";
+    const label = document.querySelector(".import-folder-label");
+    if (label) label.childNodes[0].textContent = "Choose folder";
+    setTimeout(() => { hideTaskProgress("import"); switchTab("servers"); }, 900);
   } catch (error) {
+    if (token) {
+      fetch("/api/import/cancel", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token })
+      }).catch(() => {});
+    }
+    hideTaskProgress("import");
     status.className = "status-msg show err";
     status.textContent = error.message;
     showToast(error.message, "error");
+  } finally {
+    button.disabled = false;
   }
 }
 
 async function openServer(id) {
+  stopBackupPolling();
   currentServerId = id;
   consoleOffset = 0;
   fsPath = "";
@@ -475,9 +699,11 @@ document.querySelectorAll(".dtab").forEach(btn => {
     if (btn.dataset.dtab === "commands") loadCommandWiki();
     if (btn.dataset.dtab === "files") loadFs();
     if (btn.dataset.dtab === "props") loadProps();
+    if (btn.dataset.dtab === "backups") loadBackups();
     if (btn.dataset.dtab === "anticheat") loadAntiCheat();
     if (btn.dataset.dtab === "plugins") loadPluginMods();
     if (btn.dataset.dtab === "plugins") loadPluginConfigs();
+    if (btn.dataset.dtab === "plugins") loadAutoUpdate();
   });
 });
 
@@ -485,6 +711,7 @@ function updateStatusBadge(running) {
   const badge = document.getElementById("detail-status");
   badge.textContent = running ? "Online" : "Offline";
   badge.className = "badge " + (running ? "online" : "offline");
+  window.mcScene?.setServerState({ running });
 }
 
 function updateConsoleControls() {
@@ -761,6 +988,7 @@ function renderActivePlayers(players) {
   if (!list || !count) return;
   count.textContent = `${players.length} online`;
   count.className = `badge ${players.length ? "online" : "offline"}`;
+  window.mcScene?.setServerState({ players: players.length });
   list.innerHTML = players.length
     ? players.map(name => `<button class="active-player" onclick="selectActivePlayer('${escapeHtml(name)}')"><span class="status-dot online"></span><strong>${escapeHtml(name)}</strong><span>Use</span></button>`).join("")
     : '<div class="empty">No players online</div>';
@@ -968,6 +1196,115 @@ async function loadPluginMods() {
   document.getElementById("mods-list").innerHTML = fmt(mods);
 }
 
+let lastUpdateItems = [];
+
+async function loadAutoUpdate() {
+  if (!currentServerId) return;
+  try {
+    const data = await requestJson(`/api/server/${currentServerId}/auto-update`);
+    if (!data.ok) return;
+    document.getElementById("auto-update-enabled").checked = data.settings.enabled;
+    document.getElementById("auto-update-interval").value = data.settings.interval_hours;
+    document.getElementById("auto-update-install").checked = data.settings.install;
+    document.getElementById("update-check-last").textContent = data.last_check
+      ? `Last checked: ${new Date(data.last_check).toLocaleString()}`
+      : "No check run yet.";
+  } catch { /* server may have just been deleted mid-refresh */ }
+}
+
+async function saveAutoUpdate() {
+  if (!currentServerId) return;
+  const payload = {
+    enabled: document.getElementById("auto-update-enabled").checked,
+    interval_hours: Number(document.getElementById("auto-update-interval").value) || 12,
+    install: document.getElementById("auto-update-install").checked
+  };
+  const data = await requestJson(`/api/server/${currentServerId}/auto-update`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
+  });
+  if (data.ok) {
+    showToast(payload.enabled ? "Update checks scheduled" : "Automatic update checks disabled", "success");
+    loadAutoUpdate();
+  }
+}
+
+function renderUpdateResults() {
+  const list = document.getElementById("update-results");
+  const withUpdates = lastUpdateItems.filter(item => item.update_available);
+  document.getElementById("btn-apply-updates").hidden = withUpdates.length === 0;
+  if (!lastUpdateItems.length) {
+    list.innerHTML = '<div class="empty">No plugin or mod files found.</div>';
+    return;
+  }
+  list.innerHTML = lastUpdateItems.map((item, index) => `
+    <div class="backup-item" style="--i:${index}">
+      <div class="backup-meta">
+        <strong>${escapeHtml(item.name || item.file)}</strong>
+        <span>${item.matched
+          ? (item.update_available ? `${escapeHtml(item.current_version || "?")} → ${escapeHtml(item.latest_version || "?")}` : `Up to date · ${escapeHtml(item.current_version || "")}`)
+          : "Not found on Modrinth"}</span>
+      </div>
+      <div class="backup-item-actions">
+        ${item.update_available ? `<button class="btn primary small" onclick="applyUpdate(${index})">Update</button>` : ""}
+      </div>
+    </div>`).join("");
+}
+
+async function checkForUpdates() {
+  if (!currentServerId) return;
+  const button = document.getElementById("btn-check-updates");
+  const badge = document.getElementById("update-check-badge");
+  button.disabled = true;
+  badge.textContent = "Checking...";
+  try {
+    const data = await requestJson(`/api/server/${currentServerId}/updates/check`);
+    if (!data.ok) throw new Error(data.error || "Could not check for updates");
+    lastUpdateItems = data.items;
+    renderUpdateResults();
+    const found = lastUpdateItems.filter(item => item.update_available).length;
+    badge.textContent = found ? `${found} update${found === 1 ? "" : "s"} found` : "Up to date";
+    badge.className = "badge " + (found ? "type" : "online");
+    document.getElementById("update-check-last").textContent = `Last checked: ${new Date(data.checked).toLocaleString()}`;
+  } catch (error) {
+    showToast(error.message, "error");
+    badge.textContent = "Check failed";
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function applyUpdate(index) {
+  const item = lastUpdateItems[index];
+  if (!item) return;
+  try {
+    const data = await requestJson(`/api/server/${currentServerId}/updates/apply`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: [item] })
+    });
+    if (data.applied?.length) {
+      showToast(`Updated ${item.name || item.file}`, "success");
+      checkForUpdates();
+    } else {
+      showToast(data.failed?.[0]?.detail || "Update failed", "error");
+    }
+  } catch (error) {
+    showToast(error.message, "error");
+  }
+}
+
+async function applyAllUpdates() {
+  const pending = lastUpdateItems.filter(item => item.update_available);
+  if (!pending.length) return;
+  try {
+    const data = await requestJson(`/api/server/${currentServerId}/updates/apply`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ items: pending })
+    });
+    showToast(`Updated ${data.applied.length} of ${pending.length}${data.failed.length ? " · " + data.failed.length + " failed (stop the server and retry)" : ""}`, data.failed.length ? "warning" : "success");
+    checkForUpdates();
+  } catch (error) {
+    showToast(error.message, "error");
+  }
+}
+
 async function loadPluginConfigs() {
   if (!currentServerId) return;
   const list = document.getElementById("plugin-config-list");
@@ -1005,6 +1342,161 @@ async function restartSelected() {
   const data = await (await fetch(`/api/server/${currentServerId}/restart`, { method: "POST" })).json();
   showToast(data.message || data.error, data.ok ? "success" : "error");
   if (data.ok) { updateStatusBadge(true); startConsolePolling(); }
+}
+
+function stopBackupPolling() {
+  if (backupJobTimer) clearInterval(backupJobTimer);
+  backupJobTimer = null;
+}
+
+function renderBackupJob(job) {
+  const button = document.getElementById("btn-backup-create");
+  if (!job || job.state !== "running") {
+    if (button) button.disabled = false;
+    if (!job || job.state === "done") hideTaskProgress("backup");
+    else if (job.state === "error") setTaskProgress("backup", 100, job.message);
+    return false;
+  }
+  if (button) button.disabled = true;
+  setTaskProgress("backup", job.progress, job.message);
+  return true;
+}
+
+function startBackupPolling() {
+  stopBackupPolling();
+  const serverId = currentServerId;
+  backupJobTimer = setInterval(async () => {
+    if (currentServerId !== serverId) return stopBackupPolling();
+    try {
+      const data = await requestJson(`/api/server/${serverId}/backups/job`);
+      if (renderBackupJob(data.job)) return;
+      stopBackupPolling();
+      showToast(data.job?.message || "Task finished", data.job?.state === "error" ? "error" : "success");
+      loadBackups();
+      loadServers();
+    } catch {
+      stopBackupPolling();
+    }
+  }, 1200);
+}
+
+async function loadBackups() {
+  if (!currentServerId) return;
+  const list = document.getElementById("backup-list");
+  try {
+    const data = await requestJson(`/api/server/${currentServerId}/backups`);
+    if (!data.ok) throw new Error(data.error || "Could not read backups");
+    document.getElementById("backup-keep").value = data.keep;
+    document.getElementById("backup-count").textContent = `${data.backups.length} SAVED`;
+    if (renderBackupJob(data.job)) startBackupPolling();
+    list.innerHTML = data.backups.length ? data.backups.map((backup, i) => `
+      <div class="backup-item" style="--i:${i}">
+        <div class="backup-meta">
+          <strong>${new Date(backup.created).toLocaleString()}</strong>
+          <span>${formatBytes(backup.size)} · ${backup.files} files${backup.world ? "" : " · no world"}${backup.automatic ? " · automatic" : ""}</span>
+          ${backup.label ? `<small>${escapeHtml(backup.label)}</small>` : ""}
+        </div>
+        <div class="backup-item-actions">
+          <button class="btn small" onclick="downloadBackup('${backup.name}')">↓ Download</button>
+          <button class="btn warning small" onclick="restoreBackup(this, '${backup.name}')"${data.running ? " disabled title='Stop the server first'" : ""}>↺ Restore</button>
+          <button class="btn danger small" onclick="deleteBackup(this, '${backup.name}')" title="Delete this backup">✕</button>
+        </div>
+      </div>`).join("") : '<div class="empty">No backups yet. Create one before updating plugins or the server version.</div>';
+  } catch (error) {
+    list.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
+  }
+  loadAutoBackup();
+}
+
+async function loadAutoBackup() {
+  if (!currentServerId) return;
+  try {
+    const data = await requestJson(`/api/server/${currentServerId}/auto-backup`);
+    if (!data.ok) return;
+    document.getElementById("auto-backup-enabled").checked = data.settings.enabled;
+    document.getElementById("auto-backup-interval").value = data.settings.interval_hours;
+    document.getElementById("auto-backup-world").checked = data.settings.world;
+    const badge = document.getElementById("auto-backup-badge");
+    badge.textContent = data.settings.enabled ? "On" : "Off";
+    badge.className = "badge " + (data.settings.enabled ? "online" : "offline");
+    document.getElementById("auto-backup-last").textContent = data.last_run
+      ? `Last automatic backup: ${new Date(data.last_run).toLocaleString()}`
+      : "Never run yet.";
+  } catch { /* server may have just been deleted mid-refresh */ }
+}
+
+async function saveAutoBackup() {
+  if (!currentServerId) return;
+  const payload = {
+    enabled: document.getElementById("auto-backup-enabled").checked,
+    interval_hours: Number(document.getElementById("auto-backup-interval").value) || 6,
+    world: document.getElementById("auto-backup-world").checked
+  };
+  const data = await requestJson(`/api/server/${currentServerId}/auto-backup`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
+  });
+  if (data.ok) {
+    showToast(payload.enabled ? "Automatic backups enabled" : "Automatic backups disabled", "success");
+    loadAutoBackup();
+  }
+}
+
+async function createBackup() {
+  if (!currentServerId) return;
+  const payload = {
+    label: document.getElementById("backup-label").value.trim(),
+    world: document.getElementById("backup-world").checked,
+    keep: Number(document.getElementById("backup-keep").value) || 0
+  };
+  try {
+    setTaskProgress("backup", 0, "Starting backup...");
+    const data = await requestJson(`/api/server/${currentServerId}/backups/create`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
+    });
+    if (!data.ok) throw new Error(data.message || "Could not start the backup");
+    document.getElementById("backup-label").value = "";
+    startBackupPolling();
+  } catch (error) {
+    hideTaskProgress("backup");
+    showToast(error.message, "error");
+  }
+}
+
+async function restoreBackup(button, name) {
+  if (!currentServerId || button.disabled) return;
+  if (getSettings().confirmActions && !confirm("Restoring replaces every file in this server folder with the contents of the backup. A copy of the current files is saved first. Continue?")) return;
+  button.disabled = true;
+  try {
+    setTaskProgress("backup", 0, "Starting restore...");
+    const data = await requestJson(`/api/server/${currentServerId}/backups/${encodeURIComponent(name)}/restore`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ safety: true })
+    });
+    if (!data.ok) throw new Error(data.error || data.message || "Could not start the restore");
+    startBackupPolling();
+  } catch (error) {
+    hideTaskProgress("backup");
+    showToast(error.message, "error");
+    button.disabled = false;
+  }
+}
+
+async function deleteBackup(button, name) {
+  if (!currentServerId || button.disabled) return;
+  if (getSettings().confirmActions && !confirm("Delete this backup permanently?")) return;
+  button.disabled = true;
+  try {
+    const data = await requestJson(`/api/server/${currentServerId}/backups/${encodeURIComponent(name)}/delete`, { method: "POST" });
+    if (!data.ok) throw new Error(data.error || "Could not delete the backup");
+    showToast("Backup deleted", "success");
+    loadBackups();
+  } catch (error) {
+    showToast(error.message, "error");
+    button.disabled = false;
+  }
+}
+
+function downloadBackup(name) {
+  window.open(`/api/server/${currentServerId}/backups/${encodeURIComponent(name)}/download`, "_blank");
 }
 
 async function loadServerSelect() {
@@ -1110,9 +1602,17 @@ async function installProject(projectId, title, ptype) {
   else showToast(data.error || "Failed to install", "error");
 }
 
+function tickLiveClock() {
+  const el = document.getElementById("live-clock");
+  if (el) el.textContent = new Date().toLocaleTimeString([], { hour12: false });
+}
+
 // Init
 initSettings();
+loadHostMemory();
 watchDevelopmentFiles();
 setInterval(watchDevelopmentFiles, 1500);
+tickLiveClock();
+setInterval(tickLiveClock, 1000);
 loadServers();
 loadVersions();

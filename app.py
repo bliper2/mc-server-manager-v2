@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
+import hashlib
 import os
+import secrets
 import json
 import re
 import shutil
@@ -8,6 +10,8 @@ import struct
 import subprocess
 import threading
 import time
+import uuid
+import zipfile
 from pathlib import Path
 from datetime import datetime
 
@@ -16,16 +20,35 @@ from flask import (
     Flask, render_template, request, jsonify,
     send_from_directory, abort
 )
+from werkzeug.exceptions import HTTPException
 from werkzeug.utils import secure_filename
 
+try:
+    import psutil
+except ImportError:
+    psutil = None
+
 app = Flask(__name__)
-app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024
+app.config["MAX_CONTENT_LENGTH"] = 256 * 1024 * 1024
 DEV_MODE = os.environ.get("MC_MANAGER_DEV", "1") == "1"
 OWNER_WATERMARK = "MC-SERVER-MANAGER / Mrkraps aka orgeco"
 
 BASE_DIR = Path(__file__).parent.resolve()
 SERVERS_DIR = BASE_DIR / "servers"
 SERVERS_DIR.mkdir(exist_ok=True)
+BACKUPS_DIR = BASE_DIR / "backups"
+BACKUPS_DIR.mkdir(exist_ok=True)
+IMPORTS_DIR = BASE_DIR / ".imports"
+IMPORTS_DIR.mkdir(exist_ok=True)
+
+IMPORT_SESSION_TTL = 6 * 3600
+IMPORT_BATCH_BYTES = 24 * 1024 * 1024
+BACKUP_SKIP_DIRS = {"logs", "crash-reports", "cache", "debug", "libraries", "versions"}
+BACKUP_SKIP_NAMES = {"session.lock", "usercache.json"}
+MIN_RAM_MB = 512
+MAX_RAM_MB = 65536
+MAINTENANCE_INTERVAL = 300
+UPDATE_CACHE_TTL = 3600
 
 HEADERS = {
     "User-Agent": "MC-Server-Manager/2.0 (https://github.com/local; contact@local)"
@@ -36,6 +59,9 @@ console_logs = {}
 active_players = {}
 playit_processes = {}
 playit_logs = {}
+import_sessions = {}
+backup_jobs = {}
+update_cache = {}
 
 def get_server_path(server_id: str) -> Path:
     return SERVERS_DIR / server_id
@@ -75,6 +101,242 @@ def safe_path(server_id: str, rel: str):
     if not str(target).startswith(str(base)):
         return None
     return target
+
+def sanitize_relative_parts(relative: str) -> list:
+    parts = [part for part in str(relative).replace("\\", "/").split("/") if part not in ("", ".")]
+    if any(part == ".." or ":" in part for part in parts):
+        return []
+    return parts
+
+def unique_server_id(name: str) -> str:
+    safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in name)[:40] or "server"
+    return f"{safe}_{int(time.time())}"
+
+def host_memory() -> dict:
+    total = available = None
+    if psutil is not None:
+        try:
+            memory = psutil.virtual_memory()
+            total, available = memory.total // (1024 * 1024), memory.available // (1024 * 1024)
+        except Exception:
+            total = available = None
+    if total is None:
+        try:
+            total = (os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")) // (1024 * 1024)
+        except (AttributeError, ValueError, OSError):
+            total = None
+    return {"total": total, "available": available}
+
+def suggested_ram_ceiling() -> int:
+    total = host_memory().get("total")
+    if not total:
+        return 16384
+    return max(2048, min(MAX_RAM_MB, int(total * 0.8) // 512 * 512))
+
+def clamp_ram(value, fallback=2048) -> int:
+    try:
+        return max(MIN_RAM_MB, min(MAX_RAM_MB, int(value)))
+    except (TypeError, ValueError):
+        return fallback
+
+def detect_server_type(jar_name: str) -> str:
+    lowered = (jar_name or "").lower()
+    for marker in ("paper", "purpur", "fabric", "forge", "spigot", "bukkit", "velocity", "waterfall"):
+        if marker in lowered:
+            return marker
+    return "imported"
+
+def detect_version(jar_name: str) -> str:
+    match = re.search(r"(1\.\d{1,2}(?:\.\d{1,2})?)", jar_name or "")
+    return match.group(1) if match else "unknown"
+
+def read_port_from_properties(path: Path) -> int:
+    if not path.exists():
+        return 25565
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        if line.strip().startswith("server-port="):
+            try:
+                return int(line.split("=", 1)[1].strip())
+            except ValueError:
+                break
+    return 25565
+
+def purge_stale_imports():
+    now = time.time()
+    for token, session in list(import_sessions.items()):
+        if now - session["created"] > IMPORT_SESSION_TTL:
+            shutil.rmtree(session["path"], ignore_errors=True)
+            import_sessions.pop(token, None)
+    for folder in IMPORTS_DIR.iterdir():
+        if folder.is_dir() and folder.name not in import_sessions and now - folder.stat().st_mtime > IMPORT_SESSION_TTL:
+            shutil.rmtree(folder, ignore_errors=True)
+
+def backup_dir(server_id: str) -> Path:
+    return BACKUPS_DIR / server_id
+
+def backup_entry(archive: Path) -> dict:
+    sidecar = archive.with_suffix(".json")
+    info = {}
+    if sidecar.exists():
+        try:
+            info = json.loads(sidecar.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            info = {}
+    return {
+        "name": archive.name,
+        "label": info.get("label", ""),
+        "size": archive.stat().st_size,
+        "files": info.get("files", 0),
+        "world": info.get("world", True),
+        "automatic": info.get("automatic", False),
+        "created": info.get("created") or datetime.fromtimestamp(archive.stat().st_mtime).isoformat(timespec="seconds")
+    }
+
+def list_backups(server_id: str) -> list:
+    entries = [backup_entry(archive) for archive in backup_dir(server_id).glob("*.zip")]
+    return sorted(entries, key=lambda item: item["created"], reverse=True)
+
+def resolve_backup(server_id: str, name: str):
+    if Path(name).name != name or not name.endswith(".zip"):
+        return None
+    archive = backup_dir(server_id) / name
+    return archive if archive.exists() else None
+
+def is_world_folder(path: Path) -> bool:
+    return path.is_dir() and (path.name.startswith("world") or (path / "level.dat").exists())
+
+def collect_backup_files(root: Path, include_world: bool) -> list:
+    files = []
+    for entry in sorted(root.iterdir(), key=lambda item: item.name.lower()):
+        if entry.name in BACKUP_SKIP_NAMES:
+            continue
+        if entry.is_dir():
+            if entry.name in BACKUP_SKIP_DIRS or (not include_world and is_world_folder(entry)):
+                continue
+            files.extend(child for child in entry.rglob("*") if child.is_file() and child.name not in BACKUP_SKIP_NAMES)
+        elif entry.is_file():
+            files.append(entry)
+    return files
+
+def prune_backups(server_id: str, keep: int):
+    if keep <= 0:
+        return
+    archives = sorted(backup_dir(server_id).glob("*.zip"), key=lambda item: item.stat().st_mtime, reverse=True)
+    for stale in archives[keep:]:
+        stale.with_suffix(".json").unlink(missing_ok=True)
+        stale.unlink(missing_ok=True)
+
+def set_job(server_id: str, state: str, message: str, progress: int = 0, **extra):
+    backup_jobs[server_id] = {"state": state, "message": message, "progress": progress, "updated": time.time(), **extra}
+
+def next_backup_path(server_id: str) -> Path:
+    folder = backup_dir(server_id)
+    folder.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    archive = folder / f"backup_{stamp}.zip"
+    suffix = 2
+    while archive.exists():
+        archive = folder / f"backup_{stamp}-{suffix}.zip"
+        suffix += 1
+    return archive
+
+def run_backup(server_id: str, label: str, include_world: bool, keep: int, automatic: bool = False):
+    root = get_server_path(server_id)
+    archive = next_backup_path(server_id)
+    try:
+        set_job(server_id, "running", "Collecting files...", 0)
+        files = collect_backup_files(root, include_world)
+        total = len(files) or 1
+        with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as bundle:
+            for index, source in enumerate(files, start=1):
+                try:
+                    bundle.write(source, source.relative_to(root).as_posix())
+                except (OSError, ValueError):
+                    continue
+                if index % 25 == 0 or index == total:
+                    set_job(server_id, "running", f"Archiving {index} of {total} files", int(index / total * 100))
+        archive.with_suffix(".json").write_text(json.dumps({
+            "label": label,
+            "created": datetime.now().isoformat(timespec="seconds"),
+            "files": len(files),
+            "world": include_world,
+            "automatic": automatic
+        }, indent=2), encoding="utf-8")
+        prune_backups(server_id, keep)
+        set_job(server_id, "done", f"Backup saved ({len(files)} files)", 100, backup=archive.name)
+        return archive
+    except Exception as exc:
+        archive.unlink(missing_ok=True)
+        set_job(server_id, "error", f"Backup failed: {exc}", 0)
+        return None
+
+def run_backup_task(server_id: str, label: str, include_world: bool, keep: int, automatic: bool = False):
+    live = is_running(server_id)
+    if live:
+        send_command(server_id, "save-off")
+        send_command(server_id, "save-all flush")
+        time.sleep(2)
+    try:
+        run_backup(server_id, label, include_world, keep, automatic=automatic)
+    finally:
+        if live:
+            send_command(server_id, "save-on")
+
+def auto_backup_settings(meta: dict) -> dict:
+    stored = meta.get("auto_backup") if isinstance(meta.get("auto_backup"), dict) else {}
+    return {
+        "enabled": bool(stored.get("enabled")),
+        "interval_hours": max(1, min(168, int(stored.get("interval_hours", 6) or 6))),
+        "world": stored.get("world", True) is not False
+    }
+
+def auto_update_settings(meta: dict) -> dict:
+    stored = meta.get("auto_update") if isinstance(meta.get("auto_update"), dict) else {}
+    return {
+        "enabled": bool(stored.get("enabled")),
+        "interval_hours": max(1, min(168, int(stored.get("interval_hours", 12) or 12))),
+        "install": bool(stored.get("install"))
+    }
+
+def run_restore(server_id: str, archive_name: str, safety: bool, keep: int):
+    root = get_server_path(server_id)
+    archive = backup_dir(server_id) / archive_name
+    try:
+        if safety:
+            run_backup(server_id, "Automatic copy taken before a restore", True, keep, automatic=True)
+        set_job(server_id, "running", "Clearing current server files...", 30)
+        for entry in root.iterdir():
+            if entry.is_dir():
+                shutil.rmtree(entry, ignore_errors=True)
+            else:
+                entry.unlink(missing_ok=True)
+        set_job(server_id, "running", "Extracting backup...", 45)
+        with zipfile.ZipFile(archive) as bundle:
+            members = [member for member in bundle.infolist() if not member.is_dir()]
+            total = len(members) or 1
+            for index, member in enumerate(members, start=1):
+                parts = sanitize_relative_parts(member.filename)
+                if not parts:
+                    continue
+                destination = root.joinpath(*parts)
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                with bundle.open(member) as source, open(destination, "wb") as target:
+                    shutil.copyfileobj(source, target)
+                if index % 25 == 0 or index == total:
+                    set_job(server_id, "running", f"Restoring {index} of {total} files", 45 + int(index / total * 55))
+        set_job(server_id, "done", "Backup restored", 100)
+        return True
+    except Exception as exc:
+        set_job(server_id, "error", f"Restore failed: {exc}", 0)
+        return False
+
+def start_job(server_id: str, worker, *args):
+    current = backup_jobs.get(server_id)
+    if current and current.get("state") == "running":
+        return False, "A backup task is already running for this server"
+    set_job(server_id, "running", "Starting...", 0)
+    threading.Thread(target=worker, args=(server_id, *args), daemon=True).start()
+    return True, "Task started"
 
 def encode_varint(value):
     output = bytearray()
@@ -234,6 +496,237 @@ def download_url_bytes(url):
     except Exception:
         return None
 
+def file_sha1(path: Path) -> str:
+    digest = hashlib.sha1()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+def modrinth_version_by_hash(sha1_hash: str):
+    try:
+        r = requests.get(f"https://api.modrinth.com/v2/version_file/{sha1_hash}", headers=HEADERS, timeout=15)
+        if r.status_code == 404:
+            return None
+        r.raise_for_status()
+        return r.json()
+    except Exception:
+        return None
+
+def modrinth_project_title(project_id: str, fallback: str) -> str:
+    try:
+        r = requests.get(f"https://api.modrinth.com/v2/project/{project_id}", headers=HEADERS, timeout=15)
+        r.raise_for_status()
+        return r.json().get("title") or fallback
+    except Exception:
+        return fallback
+
+def primary_version_file(version: dict):
+    files = version.get("files") or []
+    return next((f for f in files if f.get("primary")), files[0] if files else None)
+
+def scan_plugin_updates(server_id: str) -> list:
+    root = get_server_path(server_id)
+    game_version = load_meta(server_id).get("version")
+    results = []
+    for folder_name in ("plugins", "mods"):
+        folder = root / folder_name
+        if not folder.exists():
+            continue
+        for jar in sorted(folder.glob("*.jar")):
+            entry = {"file": jar.name, "folder": folder_name, "matched": False, "update_available": False}
+            try:
+                current = modrinth_version_by_hash(file_sha1(jar))
+            except OSError:
+                current = None
+            if not current:
+                results.append(entry)
+                continue
+            project_id = current.get("project_id")
+            candidates = [v for v in modrinth_versions(project_id, game_version=game_version) if v.get("id") != current.get("id")]
+            candidates.sort(key=lambda v: v.get("date_published", ""), reverse=True)
+            newest = candidates[0] if candidates else None
+            entry.update({
+                "matched": True,
+                "project_id": project_id,
+                "name": modrinth_project_title(project_id, jar.stem),
+                "current_version": current.get("version_number"),
+                "latest_version": newest.get("version_number") if newest else current.get("version_number"),
+                "update_available": bool(newest)
+            })
+            newest_file = primary_version_file(newest) if newest else None
+            if newest_file:
+                entry["download_url"] = newest_file.get("url")
+                entry["download_filename"] = newest_file.get("filename")
+            results.append(entry)
+    update_cache[server_id] = {"checked": time.time(), "items": results}
+    return results
+
+def apply_plugin_update(server_id: str, folder_name: str, filename: str, download_url: str, new_filename: str):
+    folder = get_server_path(server_id) / folder_name
+    target = folder / secure_filename(filename)
+    if not target.exists():
+        return False, "That plugin or mod file is no longer there"
+    content = download_url_bytes(download_url)
+    if not content:
+        return False, "Could not download the new version"
+    saved_name = secure_filename(new_filename or filename)
+    try:
+        if target.name != saved_name:
+            target.unlink(missing_ok=True)
+        (folder / saved_name).write_bytes(content)
+        return True, saved_name
+    except OSError as exc:
+        return False, f"Could not replace the file (is the server running?): {exc}"
+
+RCON_AUTH = 3
+RCON_COMMAND = 2
+RCON_TIMEOUT = 4
+MAP_CACHE_TTL = 0.9
+
+map_cache = {}
+
+class RconError(Exception):
+    pass
+
+class Rcon:
+    """Minimal Source RCON client. Minecraft splits long replies across packets,
+    so reads keep draining until the socket goes quiet."""
+
+    def __init__(self, host, port, password):
+        self.address = (host, int(port))
+        self.password = password
+        self.sock = None
+        self.request_id = 0
+
+    def __enter__(self):
+        self.sock = socket.create_connection(self.address, timeout=RCON_TIMEOUT)
+        self.sock.settimeout(RCON_TIMEOUT)
+        if self._send(RCON_AUTH, self.password)[0] == -1:
+            raise RconError("RCON password rejected")
+        return self
+
+    def __exit__(self, *_):
+        if self.sock:
+            self.sock.close()
+            self.sock = None
+
+    def _send(self, kind, body):
+        self.request_id += 1
+        payload = struct.pack("<ii", self.request_id, kind) + body.encode("utf-8") + b"\x00\x00"
+        self.sock.sendall(struct.pack("<i", len(payload)) + payload)
+        return self._read()
+
+    def _read(self):
+        header = self._recv_exact(12)
+        length, response_id, _ = struct.unpack("<iii", header)
+        body = self._recv_exact(length - 8)
+        return response_id, body[:-2].decode("utf-8", errors="replace")
+
+    def _recv_exact(self, count):
+        chunks = b""
+        while len(chunks) < count:
+            piece = self.sock.recv(count - len(chunks))
+            if not piece:
+                raise RconError("RCON connection closed")
+            chunks += piece
+        return chunks
+
+    def command(self, text):
+        return self._send(RCON_COMMAND, text)[1]
+
+def rcon_settings(meta: dict) -> dict:
+    stored = meta.get("rcon") if isinstance(meta.get("rcon"), dict) else {}
+    return {
+        "enabled": bool(stored.get("enabled")),
+        "port": int(stored.get("port") or 25575),
+        "password": stored.get("password") or ""
+    }
+
+def write_properties(path: Path, updates: dict):
+    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+    seen = set()
+    out = []
+    for line in lines:
+        key = line.split("=", 1)[0].strip()
+        if key in updates:
+            out.append(f"{key}={updates[key]}")
+            seen.add(key)
+        else:
+            out.append(line)
+    out.extend(f"{k}={v}" for k, v in updates.items() if k not in seen)
+    path.write_text("\n".join(out) + "\n", encoding="utf-8")
+
+POS_PATTERN = re.compile(r"\[([-\d.]+)d?,\s*([-\d.]+)d?,\s*([-\d.]+)d?\]")
+NUMBER_PATTERN = re.compile(r"([-\d.]+)[fdb]?\s*$")
+
+def parse_entity_pos(reply: str):
+    match = POS_PATTERN.search(reply or "")
+    if not match:
+        return None
+    return [round(float(v), 2) for v in match.groups()]
+
+def parse_entity_number(reply: str):
+    match = NUMBER_PATTERN.search((reply or "").strip())
+    return round(float(match.group(1)), 1) if match else None
+
+def rcon_player_snapshot(server_id: str) -> dict:
+    meta = load_meta(server_id)
+    settings = rcon_settings(meta)
+    if not settings["enabled"] or not settings["password"]:
+        return {"ok": False, "error": "RCON is not configured for this server", "players": []}
+    if not is_running(server_id):
+        return {"ok": False, "error": "Server is offline", "players": []}
+    try:
+        with Rcon("127.0.0.1", settings["port"], settings["password"]) as rcon:
+            listed = rcon.command("list")
+            names = []
+            match = re.search(r"players online:\s*(.*)$", listed.strip())
+            if match:
+                names = [n.strip() for n in match.group(1).split(",") if n.strip()]
+            players = []
+            for name in names[:40]:
+                position = parse_entity_pos(rcon.command(f"data get entity {name} Pos"))
+                if not position:
+                    continue
+                players.append({
+                    "name": name,
+                    "x": position[0],
+                    "y": position[1],
+                    "z": position[2],
+                    "health": parse_entity_number(rcon.command(f"data get entity {name} Health")),
+                    "dimension": (rcon.command(f"data get entity {name} Dimension") or "").split()[-1].strip('"')
+                })
+        return {"ok": True, "players": players}
+    except (OSError, RconError, struct.error, ValueError) as exc:
+        return {"ok": False, "error": f"RCON: {exc}", "players": []}
+
+def markers_file(server_id: str) -> Path:
+    return get_server_path(server_id) / "map_markers.json"
+
+def load_markers(server_id: str) -> list:
+    path = markers_file(server_id)
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, list) else []
+    except (OSError, json.JSONDecodeError):
+        return []
+
+def save_markers(server_id: str, markers: list):
+    markers_file(server_id).write_text(json.dumps(markers, indent=2), encoding="utf-8")
+
+def require_admin():
+    """No-op unless MC_MANAGER_TOKEN is set; the panel is otherwise bound to localhost."""
+    token = os.environ.get("MC_MANAGER_TOKEN")
+    if not token:
+        return None
+    sent = request.headers.get("X-Admin-Token") or (request.json or {}).get("token") if request.is_json else request.headers.get("X-Admin-Token")
+    if sent != token:
+        return jsonify({"ok": False, "error": "Admin token required"}), 401
+    return None
+
 def read_console(server_id, process):
     console_logs.setdefault(server_id, [])
     try:
@@ -367,6 +860,30 @@ def send_command(server_id, cmd):
     except Exception as e:
         return False, str(e)
 
+def wants_json() -> bool:
+    return request.path.startswith("/api/")
+
+@app.errorhandler(413)
+def handle_upload_too_large(_error):
+    limit = app.config["MAX_CONTENT_LENGTH"] // (1024 * 1024)
+    return jsonify({
+        "ok": False,
+        "error": f"That upload is larger than the {limit} MB limit for a single request. Folder imports are sent in batches, so this usually means one individual file is oversized."
+    }), 413
+
+@app.errorhandler(HTTPException)
+def handle_http_error(error):
+    if not wants_json():
+        return error
+    return jsonify({"ok": False, "error": error.description or error.name}), error.code
+
+@app.errorhandler(Exception)
+def handle_unexpected_error(error):
+    if not wants_json():
+        raise error
+    app.logger.exception("Unhandled error on %s", request.path)
+    return jsonify({"ok": False, "error": f"{type(error).__name__}: {error}"}), 500
+
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -415,7 +932,7 @@ def api_create():
     stype = (data.get("type") or "paper").lower()
     version = (data.get("version") or "").strip()
     try:
-        ram = max(512, min(65536, int(data.get("ram") or 2048)))
+        ram = clamp_ram(data.get("ram"))
         port = max(1024, min(65535, int(data.get("port") or 25565)))
         max_players = max(1, min(500, int(data.get("max_players") or 20)))
     except (TypeError, ValueError):
@@ -463,60 +980,101 @@ def api_create():
     save_meta(server_id, meta)
     return jsonify({"ok": True, "id": server_id, "meta": meta})
 
-@app.route("/api/import", methods=["POST"])
-def api_import_server():
-    files = request.files.getlist("files")
-    name = (request.form.get("name") or "").strip()
-    if not files:
-        return jsonify({"ok": False, "error": "Choose a server folder first"}), 400
-    first_path = files[0].filename.replace("\\", "/")
-    folder_name = first_path.split("/", 1)[0] if "/" in first_path else "Imported Server"
-    prefixes = [file.filename.replace("\\", "/").split("/", 1)[0] for file in files]
-    root_prefix = prefixes[0] if "/" in first_path and prefixes and all(prefix == prefixes[0] for prefix in prefixes) else ""
-    server_name = name or folder_name or "Imported Server"
-    safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in server_name)[:40] or "imported-server"
-    server_id = f"{safe}_{int(time.time())}"
-    target_root = get_server_path(server_id)
-    target_root.mkdir(parents=True)
+@app.route("/api/system/memory")
+def api_system_memory():
+    memory = host_memory()
+    return jsonify({
+        "ok": True,
+        "total": memory["total"],
+        "available": memory["available"],
+        "min": MIN_RAM_MB,
+        "max": MAX_RAM_MB,
+        "suggested": suggested_ram_ceiling()
+    })
+
+@app.route("/api/import/start", methods=["POST"])
+def api_import_start():
+    purge_stale_imports()
+    token = uuid.uuid4().hex
+    staging = IMPORTS_DIR / token
+    staging.mkdir(parents=True)
+    import_sessions[token] = {
+        "path": staging,
+        "created": time.time(),
+        "files": 0,
+        "bytes": 0,
+        "name": ((request.json or {}).get("name") or "").strip()
+    }
+    return jsonify({"ok": True, "token": token, "batch_bytes": IMPORT_BATCH_BYTES})
+
+@app.route("/api/import/upload", methods=["POST"])
+def api_import_upload():
+    session = import_sessions.get(request.form.get("token", ""))
+    if not session:
+        return jsonify({"ok": False, "error": "Import session expired. Start the import again."}), 404
+    staging = session["path"].resolve()
+    for uploaded in request.files.getlist("files"):
+        parts = sanitize_relative_parts(uploaded.filename)
+        if not parts:
+            continue
+        destination = staging.joinpath(*parts)
+        if staging not in destination.parents:
+            continue
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        uploaded.save(str(destination))
+        session["files"] += 1
+        session["bytes"] += destination.stat().st_size
+    session["created"] = time.time()
+    return jsonify({"ok": True, "files": session["files"], "bytes": session["bytes"]})
+
+@app.route("/api/import/finish", methods=["POST"])
+def api_import_finish():
+    data = request.json or {}
+    session = import_sessions.pop(data.get("token", ""), None)
+    if not session:
+        return jsonify({"ok": False, "error": "Import session expired. Start the import again."}), 404
+    staging = session["path"]
+    if not session["files"]:
+        shutil.rmtree(staging, ignore_errors=True)
+        return jsonify({"ok": False, "error": "No files were received from that folder"}), 400
+    chosen_name = (data.get("name") or session["name"] or "").strip()
+    server_id = unique_server_id(chosen_name or "Imported Server")
+    target = get_server_path(server_id)
     try:
-        for uploaded in files:
-            relative = uploaded.filename.replace("\\", "/")
-            parts = [part for part in relative.split("/") if part not in ("", ".")]
-            if root_prefix and parts and parts[0] == root_prefix:
-                parts = parts[1:]
-            if not parts or ".." in parts or any(":" in part for part in parts):
-                continue
-            destination = target_root.joinpath(*parts).resolve()
-            if target_root.resolve() not in destination.parents:
-                continue
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            uploaded.save(str(destination))
-    except Exception as exc:
-        shutil.rmtree(target_root, ignore_errors=True)
-        return jsonify({"ok": False, "error": f"Import failed: {exc}"}), 500
-    meta_path = target_root / "manager_meta.json"
-    if meta_path.exists():
+        shutil.move(str(staging), str(target))
+    except OSError as exc:
+        shutil.rmtree(staging, ignore_errors=True)
+        return jsonify({"ok": False, "error": f"Could not move the imported files: {exc}"}), 500
+    existing = {}
+    meta_file = target / "manager_meta.json"
+    if meta_file.exists():
         try:
-            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            existing = json.loads(meta_file.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
-            meta = {}
-    else:
-        jar = next(iter(target_root.glob("*.jar")), None)
-        properties = target_root / "server.properties"
-        port = 25565
-        if properties.exists():
-            for line in properties.read_text(encoding="utf-8", errors="replace").splitlines():
-                if line.startswith("server-port="):
-                    try:
-                        port = int(line.split("=", 1)[1])
-                    except ValueError:
-                        pass
-        meta = {"name": server_name, "type": "imported", "version": "unknown", "jar": jar.name if jar else "server.jar", "ram": 2048, "port": port, "created": datetime.now().isoformat()}
-        save_meta(server_id, meta)
-    meta["name"] = meta.get("name") or server_name
-    meta["id"] = server_id
-    save_meta(server_id, {key: value for key, value in meta.items() if key != "id"})
-    return jsonify({"ok": True, "id": server_id, "meta": meta})
+            existing = {}
+    jar = next(iter(sorted(target.glob("*.jar"), key=lambda item: item.stat().st_size, reverse=True)), None)
+    jar_name = existing.get("jar") if (target / str(existing.get("jar", ""))).is_file() else (jar.name if jar else "server.jar")
+    meta = {
+        **existing,
+        "name": chosen_name or existing.get("name") or "Imported Server",
+        "type": existing.get("type") or detect_server_type(jar_name),
+        "version": existing.get("version") or detect_version(jar_name),
+        "jar": jar_name,
+        "ram": clamp_ram(existing.get("ram"), 2048),
+        "port": existing.get("port") or read_port_from_properties(target / "server.properties"),
+        "created": existing.get("created") or datetime.now().isoformat(),
+        "imported": datetime.now().isoformat(timespec="seconds")
+    }
+    meta.pop("id", None)
+    save_meta(server_id, meta)
+    return jsonify({"ok": True, "id": server_id, "files": session["files"], "meta": {**meta, "id": server_id}})
+
+@app.route("/api/import/cancel", methods=["POST"])
+def api_import_cancel():
+    session = import_sessions.pop((request.json or {}).get("token", ""), None)
+    if session:
+        shutil.rmtree(session["path"], ignore_errors=True)
+    return jsonify({"ok": True})
 
 @app.route("/api/server/<sid>/start", methods=["POST"])
 def api_start(sid):
@@ -567,6 +1125,8 @@ def api_delete(sid):
     path = get_server_path(sid)
     if path.exists():
         shutil.rmtree(path, ignore_errors=True)
+    shutil.rmtree(BACKUPS_DIR / sid, ignore_errors=True)
+    backup_jobs.pop(sid, None)
     return jsonify({"ok": True})
 
 @app.route("/api/server/<sid>/playit", methods=["GET", "POST"])
@@ -694,6 +1254,11 @@ def api_player_action(sid):
     reason = (data.get("reason") or "Banned by admin").strip()
     if not player and action not in ("whitelist_on", "whitelist_off"):
         return jsonify({"ok": False, "error": "player required"}), 400
+    try:
+        int(data.get("count") or 1)
+        float(data.get("x", 0)); float(data.get("y", 64)); float(data.get("z", 0))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "Item count and coordinates must be numbers"}), 400
     cmds = {
         "op": f"op {player}", "deop": f"deop {player}",
         "kick": f"kick {player} {reason}", "ban": f"ban {player} {reason}",
@@ -706,10 +1271,28 @@ def api_player_action(sid):
         "troll_blind": f"effect give {player} minecraft:blindness 5 1 true",
         "troll_slow": f"effect give {player} minecraft:slowness 5 4 true",
         "troll_message": f"tell {player} {(data.get('value') or 'The admin has entered your chat.').strip()}",
+        "heal": f"effect give {player} minecraft:instant_health 1 10 true",
+        "kill": f"kill {player}",
+        "freeze": f"effect give {player} minecraft:slowness 999999 255 true",
+        "unfreeze": f"effect clear {player} minecraft:slowness",
+        "give": f"give {player} {(data.get('item') or 'minecraft:stone').strip()} {max(1, min(64, int(data.get('count') or 1)))}",
+        "tp_to_player": f"tp {player} {(data.get('target') or '').strip()}",
+        "tp_to_coords": f"tp {player} {data.get('x', 0)} {data.get('y', 64)} {data.get('z', 0)}",
     }
     cmd = cmds.get(action)
     if not cmd:
         return jsonify({"ok": False, "error": "Unknown action"}), 400
+    if action == "tp_to_player" and not (data.get("target") or "").strip():
+        return jsonify({"ok": False, "error": "Choose a player to teleport to"}), 400
+    settings = rcon_settings(load_meta(sid))
+    if settings["enabled"] and settings["password"]:
+        # RCON hands back the server's own reply, which is what the action log shows.
+        try:
+            with Rcon("127.0.0.1", settings["port"], settings["password"]) as rcon:
+                reply = rcon.command(cmd).strip()
+            return jsonify({"ok": True, "message": reply or "Command sent", "command": cmd})
+        except (OSError, RconError, struct.error):
+            pass
     ok, msg = send_command(sid, cmd)
     return jsonify({"ok": ok, "message": msg, "command": cmd})
 
@@ -922,6 +1505,265 @@ def api_plugin_configs(sid):
         if path.is_file() and path.suffix.lower() in (".yml", ".yaml", ".json"):
             configs.append({"path": str(path.relative_to(get_server_path(sid))).replace("\\", "/"), "size": path.stat().st_size})
     return jsonify(sorted(configs, key=lambda item: item["path"].lower()))
+
+
+def backup_keep_value(data: dict, server_id: str) -> int:
+    fallback = int(load_meta(server_id).get("backup_keep", 10) or 10)
+    try:
+        return max(0, min(50, int(data.get("keep", fallback))))
+    except (TypeError, ValueError):
+        return fallback
+
+@app.route("/api/server/<sid>/backups")
+def api_backups(sid):
+    if not get_server_path(sid).exists():
+        return jsonify({"ok": False, "error": "Server not found"}), 404
+    return jsonify({
+        "ok": True,
+        "backups": list_backups(sid),
+        "keep": int(load_meta(sid).get("backup_keep", 10) or 10),
+        "running": is_running(sid),
+        "job": backup_jobs.get(sid)
+    })
+
+@app.route("/api/server/<sid>/backups/create", methods=["POST"])
+def api_backup_create(sid):
+    if not get_server_path(sid).exists():
+        return jsonify({"ok": False, "error": "Server not found"}), 404
+    data = request.json or {}
+    keep = backup_keep_value(data, sid)
+    meta = load_meta(sid)
+    meta["backup_keep"] = keep
+    save_meta(sid, meta)
+    ok, message = start_job(sid, run_backup_task, str(data.get("label") or "").strip()[:80], data.get("world", True) is not False, keep)
+    return jsonify({"ok": ok, "message": message})
+
+@app.route("/api/server/<sid>/backups/job")
+def api_backup_job(sid):
+    return jsonify({"ok": True, "job": backup_jobs.get(sid)})
+
+@app.route("/api/server/<sid>/backups/<name>/restore", methods=["POST"])
+def api_backup_restore(sid, name):
+    archive = resolve_backup(sid, name)
+    if not archive:
+        return jsonify({"ok": False, "error": "Backup not found"}), 404
+    if is_running(sid):
+        return jsonify({"ok": False, "error": "Stop the server before restoring a backup"}), 400
+    data = request.json or {}
+    ok, message = start_job(sid, run_restore, archive.name, data.get("safety", True) is not False, backup_keep_value(data, sid))
+    return jsonify({"ok": ok, "message": message})
+
+@app.route("/api/server/<sid>/backups/<name>/delete", methods=["POST"])
+def api_backup_delete(sid, name):
+    archive = resolve_backup(sid, name)
+    if not archive:
+        return jsonify({"ok": False, "error": "Backup not found"}), 404
+    archive.with_suffix(".json").unlink(missing_ok=True)
+    archive.unlink(missing_ok=True)
+    return jsonify({"ok": True, "message": "Backup deleted"})
+
+@app.route("/api/server/<sid>/backups/<name>/download")
+def api_backup_download(sid, name):
+    archive = resolve_backup(sid, name)
+    if not archive:
+        abort(404)
+    return send_from_directory(archive.parent, archive.name, as_attachment=True)
+
+@app.route("/api/server/<sid>/auto-backup", methods=["GET", "POST"])
+def api_auto_backup(sid):
+    if not get_server_path(sid).exists():
+        return jsonify({"ok": False, "error": "Server not found"}), 404
+    meta = load_meta(sid)
+    if request.method == "POST":
+        data = request.json or {}
+        try:
+            interval = max(1, min(168, int(data.get("interval_hours", 6))))
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "Interval must be a number"}), 400
+        meta["auto_backup"] = {
+            "enabled": bool(data.get("enabled")),
+            "interval_hours": interval,
+            "world": data.get("world", True) is not False
+        }
+        save_meta(sid, meta)
+        return jsonify({"ok": True, "settings": meta["auto_backup"]})
+    return jsonify({"ok": True, "settings": auto_backup_settings(meta), "last_run": meta.get("last_auto_backup")})
+
+@app.route("/api/server/<sid>/auto-update", methods=["GET", "POST"])
+def api_auto_update(sid):
+    if not get_server_path(sid).exists():
+        return jsonify({"ok": False, "error": "Server not found"}), 404
+    meta = load_meta(sid)
+    if request.method == "POST":
+        data = request.json or {}
+        try:
+            interval = max(1, min(168, int(data.get("interval_hours", 12))))
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "Interval must be a number"}), 400
+        meta["auto_update"] = {
+            "enabled": bool(data.get("enabled")),
+            "interval_hours": interval,
+            "install": bool(data.get("install"))
+        }
+        save_meta(sid, meta)
+        return jsonify({"ok": True, "settings": meta["auto_update"]})
+    return jsonify({"ok": True, "settings": auto_update_settings(meta), "last_check": meta.get("last_update_check")})
+
+@app.route("/api/server/<sid>/updates/check")
+def api_updates_check(sid):
+    if not get_server_path(sid).exists():
+        return jsonify({"ok": False, "error": "Server not found"}), 404
+    items = scan_plugin_updates(sid)
+    meta = load_meta(sid)
+    meta["last_update_check"] = datetime.now().isoformat(timespec="seconds")
+    save_meta(sid, meta)
+    return jsonify({"ok": True, "items": items, "checked": meta["last_update_check"]})
+
+@app.route("/api/server/<sid>/updates/apply", methods=["POST"])
+def api_updates_apply(sid):
+    if not get_server_path(sid).exists():
+        return jsonify({"ok": False, "error": "Server not found"}), 404
+    data = request.json or {}
+    targets = data.get("items")
+    if not isinstance(targets, list) or not targets:
+        cached = update_cache.get(sid, {}).get("items", [])
+        targets = [item for item in cached if item.get("update_available") and item.get("download_url")]
+    applied, failed = [], []
+    for item in targets:
+        folder, filename, url = item.get("folder"), item.get("file"), item.get("download_url")
+        if not (folder and filename and url):
+            continue
+        ok, result = apply_plugin_update(sid, folder, filename, url, item.get("download_filename"))
+        (applied if ok else failed).append({"file": filename, "detail": result})
+    return jsonify({"ok": not failed, "applied": applied, "failed": failed})
+
+def run_scheduled_maintenance():
+    now = time.time()
+    for folder in SERVERS_DIR.iterdir():
+        if not folder.is_dir() or not (folder / "manager_meta.json").exists():
+            continue
+        sid = folder.name
+        meta = load_meta(sid)
+        dirty = False
+
+        backup_cfg = auto_backup_settings(meta)
+        if backup_cfg["enabled"]:
+            due_at = meta.get("last_auto_backup_at", 0) + backup_cfg["interval_hours"] * 3600
+            job = backup_jobs.get(sid)
+            if now >= due_at and not (job and job.get("state") == "running"):
+                keep = int(meta.get("backup_keep", 10) or 10)
+                started, _ = start_job(sid, run_backup_task, "Automatic backup", backup_cfg["world"], keep, True)
+                if started:
+                    meta["last_auto_backup_at"] = now
+                    meta["last_auto_backup"] = datetime.now().isoformat(timespec="seconds")
+                    dirty = True
+
+        update_cfg = auto_update_settings(meta)
+        if update_cfg["enabled"]:
+            due_at = meta.get("last_update_check_at", 0) + update_cfg["interval_hours"] * 3600
+            if now >= due_at:
+                try:
+                    items = scan_plugin_updates(sid)
+                    meta["last_update_check_at"] = now
+                    meta["last_update_check"] = datetime.now().isoformat(timespec="seconds")
+                    dirty = True
+                    if update_cfg["install"]:
+                        for item in items:
+                            if item.get("update_available") and item.get("download_url"):
+                                apply_plugin_update(sid, item["folder"], item["file"], item["download_url"], item.get("download_filename"))
+                except Exception as exc:
+                    print(f"Update check failed for {sid}:", exc)
+
+        if dirty:
+            save_meta(sid, meta)
+
+def maintenance_loop():
+    while True:
+        time.sleep(MAINTENANCE_INTERVAL)
+        try:
+            run_scheduled_maintenance()
+        except Exception as exc:
+            print("Maintenance loop error:", exc)
+
+@app.route("/api/server/<sid>/rcon", methods=["GET", "POST"])
+def api_rcon(sid):
+    denied = require_admin()
+    if denied:
+        return denied
+    if not get_server_path(sid).exists():
+        return jsonify({"ok": False, "error": "Server not found"}), 404
+    meta = load_meta(sid)
+    if request.method == "POST":
+        data = request.json or {}
+        try:
+            port = max(1024, min(65535, int(data.get("port") or 25575)))
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "RCON port must be a number"}), 400
+        enabled = bool(data.get("enabled"))
+        password = (data.get("password") or rcon_settings(meta)["password"] or secrets.token_urlsafe(12)).strip()
+        meta["rcon"] = {"enabled": enabled, "port": port, "password": password}
+        save_meta(sid, meta)
+        write_properties(get_server_path(sid) / "server.properties", {
+            "enable-rcon": "true" if enabled else "false",
+            "rcon.port": port,
+            "rcon.password": password,
+            "broadcast-rcon-to-ops": "false"
+        })
+        return jsonify({"ok": True, "settings": meta["rcon"], "restart_required": is_running(sid)})
+    settings = rcon_settings(meta)
+    return jsonify({"ok": True, "settings": settings, "running": is_running(sid)})
+
+@app.route("/api/server/<sid>/map")
+def api_map(sid):
+    if not get_server_path(sid).exists():
+        return jsonify({"ok": False, "error": "Server not found"}), 404
+    cached = map_cache.get(sid)
+    if cached and time.time() - cached["at"] < MAP_CACHE_TTL:
+        snapshot = cached["snapshot"]
+    else:
+        snapshot = rcon_player_snapshot(sid)
+        map_cache[sid] = {"at": time.time(), "snapshot": snapshot}
+    return jsonify({
+        "ok": True,
+        "running": is_running(sid),
+        "players": snapshot["players"],
+        "error": snapshot.get("error"),
+        "markers": load_markers(sid)
+    })
+
+@app.route("/api/server/<sid>/map/markers", methods=["POST"])
+def api_map_markers(sid):
+    denied = require_admin()
+    if denied:
+        return denied
+    if not get_server_path(sid).exists():
+        return jsonify({"ok": False, "error": "Server not found"}), 404
+    data = request.json or {}
+    markers = load_markers(sid)
+    if data.get("remove"):
+        markers = [m for m in markers if m.get("id") != data["remove"]]
+        save_markers(sid, markers)
+        return jsonify({"ok": True, "markers": markers})
+    label = (data.get("label") or "").strip()[:60]
+    if not label:
+        return jsonify({"ok": False, "error": "Give the structure a name"}), 400
+    try:
+        marker = {
+            "id": uuid.uuid4().hex[:8],
+            "label": label,
+            "owner": (data.get("owner") or "").strip()[:40],
+            "kind": (data.get("kind") or "base").strip()[:24],
+            "x": float(data.get("x") or 0),
+            "z": float(data.get("z") or 0)
+        }
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "Coordinates must be numbers"}), 400
+    markers.append(marker)
+    save_markers(sid, markers)
+    return jsonify({"ok": True, "markers": markers, "marker": marker})
+
+if os.environ.get("WERKZEUG_RUN_MAIN") == "true" or not DEV_MODE:
+    threading.Thread(target=maintenance_loop, daemon=True).start()
 
 if __name__ == "__main__":
     print("=" * 55)

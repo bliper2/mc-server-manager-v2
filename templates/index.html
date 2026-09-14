@@ -6,12 +6,14 @@
   <meta name="author" content="Mrkraps aka orgeco" />
   <meta name="generator" content="MC Server Manager by Mrkraps aka orgeco" />
   <title>MC Server Manager v2</title>
+  <link rel="stylesheet" href="/static/vendor/leaflet.css" />
   <link rel="stylesheet" href="/static/css/style.css" />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fira+Code:wght@400;500;600&family=Manrope:wght@400;500;600;700;800&family=Orbitron:wght@500;600;700;800&family=Press+Start+2P&family=Rajdhani:wght@400;500;600;700&family=Space+Mono:wght@400;700&family=Space+Grotesk:wght@400;500;600;700&family=VT323&display=swap" rel="stylesheet" />
 </head>
 <body>
   <!-- MC-SERVER-MANAGER-OWNER: Mrkraps aka orgeco -->
   <span class="owner-watermark" data-owner="Mrkraps aka orgeco" aria-hidden="true">Mrkraps aka orgeco</span>
+  <canvas id="backdrop" aria-hidden="true" hidden></canvas>
   <div class="app">
     <aside class="sidebar">
       <div class="logo">
@@ -21,14 +23,15 @@
       <nav>
         <button class="nav-btn active" data-tab="servers"><span class="nav-icon">01</span> Servers</button>
         <button class="nav-btn" data-tab="create"><span class="nav-icon">02</span> Create</button>
-        <button class="nav-btn" data-tab="browser"><span class="nav-icon">03</span> Plugins & Mods</button>
-        <button class="nav-btn" data-tab="settings"><span class="nav-icon">04</span> Settings</button>
+        <button class="nav-btn" data-tab="map"><span class="nav-icon">03</span> Live Map</button>
+        <button class="nav-btn" data-tab="browser"><span class="nav-icon">04</span> Plugins & Mods</button>
+        <button class="nav-btn" data-tab="settings"><span class="nav-icon">05</span> Settings</button>
       </nav>
       <div class="sidebar-footer"><small>Paper API fixed · File manager · Players</small><small>Dev / Owner: Mrkraps aka orgeco</small></div>
     </aside>
 
     <main class="main">
-      <div class="utility-bar"><span><i></i> Local workspace</span><span class="utility-time">MC SERVER MANAGER / 2.0</span></div>
+      <div class="utility-bar"><span><i></i> Local workspace<span class="caret" aria-hidden="true">_</span></span><span class="utility-time" id="live-clock">--:--:--</span></div>
 
       <section id="tab-servers" class="tab active">
         <header class="page-header">
@@ -52,20 +55,32 @@
       </section>
 
       <section id="tab-create" class="tab">
-        <header class="page-header"><h1>Create Server</h1></header>
-        <div class="form-card">
-          <div class="form-group">
-            <label>Server Name</label>
-            <input type="text" id="create-name" placeholder="My Server" maxlength="40" />
-          </div>
-          <div class="server-logo-picker">
-            <div id="create-logo-preview" class="server-avatar avatar-lime">MC</div>
-            <div><strong>Server logo</strong><small>Generated from your server identity</small></div>
-            <button class="btn small" type="button" onclick="shuffleServerLogo()">Shuffle logo</button>
-          </div>
-          <div class="form-row">
+        <header class="page-header">
+          <div><span class="eyebrow">New instance</span><h1>Create Server</h1></div>
+        </header>
+        <div class="create-layout">
+          <section class="form-section span-2">
+            <div class="section-head"><span class="section-index">01</span><h2>Identity</h2><span class="section-note">Shown in the server list</span></div>
             <div class="form-group">
-              <label>Type</label>
+              <label for="create-name">Server name</label>
+              <input type="text" id="create-name" placeholder="My Server" maxlength="40" />
+            </div>
+            <div class="server-logo-picker">
+              <div id="create-logo-preview" class="server-avatar avatar-lime">MC</div>
+              <div><strong>Server logo</strong><small>Generated from your server identity</small></div>
+              <button class="btn small" type="button" onclick="shuffleServerLogo()">Shuffle logo</button>
+            </div>
+            <div class="form-group">
+              <label for="create-motd">Message of the day</label>
+              <input type="text" id="create-motd" placeholder="My Minecraft server" maxlength="120" />
+              <small class="field-hint">The line players see under the server name in their multiplayer list.</small>
+            </div>
+          </section>
+
+          <section class="form-section">
+            <div class="section-head"><span class="section-index">02</span><h2>Platform</h2></div>
+            <div class="form-group">
+              <label for="create-type">Server type</label>
               <select id="create-type">
                 <option value="paper">Paper (plugins)</option>
                 <option value="purpur">Purpur</option>
@@ -73,37 +88,193 @@
               </select>
             </div>
             <div class="form-group">
-              <label>Version</label>
+              <label for="create-version">Minecraft version</label>
               <select id="create-version"><option>Loading...</option></select>
             </div>
+          </section>
+
+          <section class="form-section">
+            <div class="section-head"><span class="section-index">03</span><h2>Network</h2></div>
+            <div class="form-group">
+              <label for="create-port">Server port</label>
+              <input type="number" id="create-port" min="1024" max="65535" step="1" value="25565" />
+              <small class="field-hint" id="port-hint">Allowed range: 1024–65535</small>
+            </div>
+            <div class="form-group">
+              <label for="create-max-players">Max players <strong id="max-players-display">20</strong></label>
+              <input type="range" id="create-max-players" min="1" max="100" step="1" value="20" />
+              <div class="range-scale"><span>1</span><span>100</span></div>
+            </div>
+          </section>
+
+          <section class="form-section">
+            <div class="section-head"><span class="section-index">04</span><h2>Rules</h2></div>
+            <div class="form-row">
+              <div class="form-group"><label for="create-gamemode">Game mode</label><select id="create-gamemode"><option>survival</option><option>creative</option><option>adventure</option><option>spectator</option></select></div>
+              <div class="form-group"><label for="create-difficulty">Difficulty</label><select id="create-difficulty"><option>easy</option><option selected>normal</option><option>hard</option><option>peaceful</option></select></div>
+            </div>
+            <small class="field-hint">Toggles shown in amber change who can connect or what they can run.</small>
+            <div class="option-toggles">
+              <label class="option-toggle"><input type="checkbox" id="create-pvp" checked /><span class="toggle-mark"></span><span><strong>PvP</strong><small>Players can damage each other</small></span></label>
+              <label class="option-toggle" data-risk="off"><input type="checkbox" id="create-online-mode" checked /><span class="toggle-mark"></span><span><strong>Online mode</strong><small>Verify accounts with Mojang</small><small class="risk-note">Off: anyone can join using any username</small></span></label>
+              <label class="option-toggle" data-risk="on"><input type="checkbox" id="create-command-blocks" /><span class="toggle-mark"></span><span><strong>Command blocks</strong><small>Allow automation blocks</small><small class="risk-note">On: in-game blocks can run server commands</small></span></label>
+              <label class="option-toggle"><input type="checkbox" id="create-whitelist" /><span class="toggle-mark"></span><span><strong>Whitelist</strong><small>Only approved players can join</small></span></label>
+            </div>
+          </section>
+
+          <section class="form-section">
+            <div class="section-head"><span class="section-index">05</span><h2>Resources</h2><span class="section-value" id="ram-display">2 GB</span></div>
+            <div class="ram-group">
+              <div id="ram-presets" class="ram-presets">
+                <button type="button" class="ram-preset" data-ram="1024">1 GB</button>
+                <button type="button" class="ram-preset" data-ram="2048">2 GB</button>
+                <button type="button" class="ram-preset" data-ram="4096">4 GB</button>
+                <button type="button" class="ram-preset" data-ram="6144">6 GB</button>
+                <button type="button" class="ram-preset" data-ram="8192">8 GB</button>
+                <button type="button" class="ram-preset" data-ram="12288">12 GB</button>
+                <button type="button" class="ram-preset" data-ram="16384">16 GB</button>
+                <button type="button" class="ram-preset" data-ram="24576">24 GB</button>
+                <button type="button" class="ram-preset" data-ram="32768">32 GB</button>
+              </div>
+              <div class="ram-exact">
+                <label for="create-ram-exact">Exact amount</label>
+                <input type="number" id="create-ram-exact" min="512" max="65536" step="256" value="2048" />
+                <span class="ram-unit">MB</span>
+              </div>
+              <small class="field-hint" id="ram-hint">Reading installed memory...</small>
+            </div>
+          </section>
+
+          <div class="create-commit span-2">
+            <div class="review-strip">
+              <div class="review-item"><span>Name</span><strong id="review-name">unnamed</strong></div>
+              <div class="review-item"><span>Platform</span><strong id="review-platform">paper</strong></div>
+              <div class="review-item"><span>Port</span><strong id="review-port">25565</strong></div>
+              <div class="review-item"><span>Memory</span><strong id="review-ram">2 GB</strong></div>
+              <div class="review-item"><span>Slots</span><strong id="review-slots">20</strong></div>
+            </div>
+            <button class="btn primary large" id="btn-create" onclick="createServer()">Download &amp; Create</button>
+            <div id="create-status" class="status-msg" role="status"></div>
           </div>
-          <div class="form-row">
-            <div class="form-group"><label for="create-port">Server Port</label><input type="number" id="create-port" min="1024" max="65535" step="1" value="25565" /><small class="field-hint">Allowed range: 1024–65535</small></div>
-            <div class="form-group"><label for="create-max-players">Max Players <strong id="max-players-display">20</strong></label><input type="range" id="create-max-players" min="1" max="100" step="1" value="20" /><div class="range-scale"><span>1</span><span>100</span></div></div>
-          </div>
-          <div class="form-row">
-            <div class="form-group"><label for="create-gamemode">Game Mode</label><select id="create-gamemode"><option>survival</option><option>creative</option><option>adventure</option><option>spectator</option></select></div>
-            <div class="form-group"><label for="create-difficulty">Difficulty</label><select id="create-difficulty"><option>easy</option><option selected>normal</option><option>hard</option><option>peaceful</option></select></div>
-          </div>
-          <div class="form-group"><label for="create-motd">Message of the day</label><input type="text" id="create-motd" placeholder="My Minecraft server" maxlength="120" /></div>
-          <div class="option-toggles">
-            <label class="option-toggle"><input type="checkbox" id="create-pvp" checked /><span class="toggle-mark"></span><span><strong>PvP</strong><small>Players can fight</small></span></label>
-            <label class="option-toggle"><input type="checkbox" id="create-online-mode" checked /><span class="toggle-mark"></span><span><strong>Online mode</strong><small>Verify player accounts</small></span></label>
-            <label class="option-toggle"><input type="checkbox" id="create-command-blocks" /><span class="toggle-mark"></span><span><strong>Command blocks</strong><small>Allow automation blocks</small></span></label>
-            <label class="option-toggle"><input type="checkbox" id="create-whitelist" /><span class="toggle-mark"></span><span><strong>Whitelist</strong><small>Only approved players</small></span></label>
-          </div>
-          <div class="form-group">
-            <label>RAM (MB)</label>
-            <input type="range" id="create-ram" min="1024" max="16384" step="512" value="2048" />
-            <div class="ram-value"><span id="ram-display">2048</span> MB</div>
-          </div>
-          <button class="btn primary large" id="btn-create" onclick="createServer()">Download & Create</button>
-          <div id="create-status" class="status-msg"></div>
         </div>
         <div class="import-card">
           <div><span class="eyebrow">Existing server</span><h2>Import server folder</h2><p>Bring in an existing Minecraft server while preserving worlds, plugins, mods, and configs.</p></div>
-          <div class="import-controls"><input type="text" id="import-name" placeholder="Server name (optional)" maxlength="40" /><label class="btn small primary import-folder-label">Choose folder<input id="import-folder" type="file" webkitdirectory directory multiple hidden /></label><button class="btn small" onclick="importServerFolder()">Import folder</button></div>
+          <div class="import-controls"><input type="text" id="import-name" placeholder="Server name (optional)" maxlength="40" /><label class="btn small primary import-folder-label">Choose folder<input id="import-folder" type="file" webkitdirectory directory multiple hidden /></label><button class="btn small" id="btn-import" onclick="importServerFolder()">Import folder</button></div>
+          <div id="import-progress" class="task-progress" hidden><div class="task-bar"><i id="import-bar-fill"></i></div><span id="import-progress-text">Preparing...</span></div>
           <div id="import-status" class="status-msg"></div>
+        </div>
+      </section>
+
+      <section id="tab-map" class="tab">
+        <header class="page-header">
+          <div><span class="eyebrow">Live world</span><h1>Player Map</h1></div>
+          <div class="header-actions">
+            <label class="sr-only" for="map-server">Server</label>
+            <select id="map-server" class="toolbar-select"></select>
+            <span id="map-status" class="badge offline">Offline</span>
+          </div>
+        </header>
+
+        <div id="map-rcon-setup" class="panel-card map-rcon" hidden>
+          <div class="wiki-heading"><div><span class="eyebrow">Required</span><h2>Connect over RCON</h2></div></div>
+          <p class="hint">Live coordinates come from the server's RCON port. Saving writes <code>enable-rcon</code>, <code>rcon.port</code> and <code>rcon.password</code> into server.properties; the server has to restart before it takes effect.</p>
+          <div class="backup-controls">
+            <label class="backup-option"><input type="checkbox" id="rcon-enabled" /><span>Enable RCON</span></label>
+            <label class="backup-option"><span>Port</span><input type="number" id="rcon-port" min="1024" max="65535" value="25575" /></label>
+            <input type="password" id="rcon-password" placeholder="RCON password (blank = generate)" autocomplete="off" />
+            <button class="btn primary small" onclick="saveRcon()">Save RCON settings</button>
+          </div>
+        </div>
+
+        <div class="map-layout">
+          <div class="map-stage">
+            <div id="map-canvas"></div>
+            <div class="map-toolbar">
+              <span id="map-coords" class="map-coords">X 0  Z 0</span>
+              <input type="text" id="structure-label" placeholder="Structure name" maxlength="60" />
+              <input type="text" id="structure-owner" placeholder="Owner (optional)" maxlength="40" />
+              <select id="structure-kind">
+                <option value="base">Base</option>
+                <option value="farm">Farm</option>
+                <option value="portal">Portal</option>
+                <option value="shop">Shop</option>
+                <option value="spawn">Spawn</option>
+              </select>
+              <button class="btn small" onclick="beginPlacement()">Place on map</button>
+            </div>
+          </div>
+
+          <aside class="map-side">
+            <div class="panel-card">
+              <div class="active-players-heading"><h3>Online players</h3><span id="map-player-count" class="badge offline">0 online</span></div>
+              <input type="text" id="map-search" placeholder="Filter players..." />
+              <div id="map-player-list" class="active-player-list"><div class="empty">Nobody online</div></div>
+            </div>
+            <div class="panel-card">
+              <div class="active-players-heading"><h3>Action log</h3><button id="map-log-toggle" class="console-tool">Hide</button></div>
+              <div id="map-log" class="map-log"></div>
+            </div>
+          </aside>
+        </div>
+
+        <div id="player-drawer" class="drawer">
+          <div class="drawer-head">
+            <div><span class="eyebrow">Player</span><h2 id="drawer-name">Player</h2></div>
+            <button class="btn ghost small" onclick="closePlayerDrawer()">Close</button>
+          </div>
+          <div id="drawer-stats" class="info-card drawer-stats"></div>
+
+          <div class="drawer-group">
+            <span class="eyebrow">Permissions</span>
+            <div class="drawer-actions">
+              <button class="btn success small" onclick="moderate('op')">OP</button>
+              <button class="btn small" onclick="moderate('deop')">De-OP</button>
+              <button class="btn small" onclick="moderate('whitelist_add')">Whitelist</button>
+              <button class="btn small" onclick="moderate('whitelist_remove')">Unwhitelist</button>
+            </div>
+          </div>
+
+          <div class="drawer-group">
+            <span class="eyebrow">Server actions</span>
+            <div class="drawer-actions">
+              <button class="btn warning small" onclick="moderate('kick')">Kick</button>
+              <button class="btn small" onclick="moderate('pardon')">Unban</button>
+            </div>
+            <div class="drawer-row">
+              <input type="text" id="ban-reason" placeholder="Ban reason" maxlength="80" />
+              <button class="btn danger small" onclick="moderateBan()">Ban</button>
+            </div>
+          </div>
+
+          <div class="drawer-group">
+            <span class="eyebrow">Teleport</span>
+            <div class="drawer-row">
+              <input type="number" id="tp-x" placeholder="X" />
+              <input type="number" id="tp-y" placeholder="Y" value="64" />
+              <input type="number" id="tp-z" placeholder="Z" />
+              <button class="btn small" onclick="moderateTeleportCoords()">Send</button>
+            </div>
+            <div class="drawer-row">
+              <input type="text" id="tp-target" placeholder="To player" maxlength="24" />
+              <button class="btn small" onclick="moderateTeleportPlayer()">Teleport</button>
+            </div>
+          </div>
+
+          <div class="drawer-group">
+            <span class="eyebrow">Utility</span>
+            <div class="drawer-actions">
+              <button class="btn success small" onclick="moderate('heal')">Heal</button>
+              <button class="btn danger small" onclick="moderate('kill')">Kill</button>
+              <button class="btn warning small" onclick="moderate('freeze')">Freeze</button>
+              <button class="btn small" onclick="moderate('unfreeze')">Unfreeze</button>
+            </div>
+            <div class="drawer-row">
+              <input type="text" id="give-item" placeholder="minecraft:diamond" />
+              <input type="number" id="give-count" value="1" min="1" max="64" />
+              <button class="btn small" onclick="moderateGive()">Give</button>
+            </div>
+            <p class="hint">Mute and inventory inspection need a permissions plugin such as EssentialsX or LuckPerms; freeze here applies a slowness effect rather than a true freeze.</p>
+          </div>
         </div>
       </section>
 
@@ -131,11 +302,12 @@
         <div class="settings-layout">
           <section class="settings-card">
             <div class="settings-card-heading"><div><span class="eyebrow">Appearance</span><h2>Make it yours</h2></div><span class="settings-symbol">Aa</span></div>
-            <div class="setting-row"><div><strong>Website theme</strong><small>Choose the atmosphere for the control center.</small></div><select class="setting-input" data-setting="theme"><option value="control">Control room</option><option value="midnight">Midnight</option><option value="light">Paper light</option><option value="forest">Deep forest</option><option value="ocean">Signal ocean</option><option value="sunset">Redstone sunset</option><option value="slate">Industrial slate</option><option value="sandstone">Warm sandstone</option></select></div>
+            <div class="setting-row"><div><strong>Website theme</strong><small>Choose the atmosphere for the control center.</small></div><select class="setting-input" data-setting="theme"><optgroup label="Dark neutral"><option value="control">Control room</option><option value="slate">Industrial slate</option><option value="graphite">Graphite</option><option value="carbon">Carbon</option><option value="obsidian">Obsidian</option><option value="onyx">Onyx</option><option value="ink">Ink</option></optgroup><optgroup label="Cool"><option value="midnight">Midnight</option><option value="ocean">Signal ocean</option><option value="abyss">Abyss</option><option value="northern">Northern</option><option value="iceberg">Iceberg</option><option value="indigo">Indigo</option><option value="teal">Deep teal</option><option value="neoncity">Neon city</option><option value="vampire">Vampire</option></optgroup><optgroup label="Warm"><option value="sunset">Redstone sunset</option><option value="sandstone">Warm sandstone</option><option value="ember">Ember</option><option value="mocha">Mocha</option><option value="rust">Rust</option><option value="wine">Wine</option><option value="roasted">Roasted</option></optgroup><optgroup label="Green"><option value="forest">Deep forest</option><option value="matrix">Matrix</option><option value="moss">Moss</option><option value="phosphor">Phosphor CRT</option></optgroup><optgroup label="Retro"><option value="synthwave">Synthwave</option><option value="vapor">Vaporwave</option><option value="cyber">Cyberpunk</option><option value="ambercrt">Amber CRT</option><option value="commodore">Commodore</option></optgroup><optgroup label="Light"><option value="light">Paper light</option><option value="linen">Linen</option><option value="daylight">Daylight</option><option value="frost">Frost</option><option value="solar">Solar</option></optgroup></select></div>
             <div class="setting-row"><div><strong>Interface font</strong><small>Change the personality of the dashboard.</small></div><select class="setting-input" data-setting="font"><option value="dm">DM Sans</option><option value="manrope">Manrope</option><option value="space">Space Grotesk</option><option value="rajdhani">Rajdhani</option><option value="orbitron">Orbitron</option><option value="pixel">Press Start 2P</option><option value="terminal">VT323</option></select></div>
             <div class="setting-row"><div><strong>Accent color</strong><small>Choose the highlight color used across the manager.</small></div><select class="setting-input" data-setting="accent"><option value="lime">Lime</option><option value="blue">Blue</option><option value="amber">Amber</option></select></div>
             <div class="setting-row"><div><strong>Interface density</strong><small>Control the spacing of cards and panels.</small></div><select class="setting-input" data-setting="density"><option value="comfortable">Comfortable</option><option value="compact">Compact</option></select></div>
             <div class="setting-row"><div><strong>Motion</strong><small>Keep subtle page and hover transitions enabled.</small></div><label class="setting-switch"><input class="setting-input" data-setting="motion" type="checkbox" checked /><span></span></label></div>
+            <div class="setting-row"><div><strong>3D backdrop</strong><small>Animated voxel field behind the panel. Turn off to save GPU while a server runs.</small></div><label class="setting-switch"><input class="setting-input" data-setting="backdrop3d" type="checkbox" checked /><span></span></label></div>
           </section>
           <section class="settings-card">
             <div class="settings-card-heading"><div><span class="eyebrow">Behavior</span><h2>How it works</h2></div><span class="settings-symbol">⚙</span></div>
@@ -168,6 +340,7 @@
           <button class="dtab" data-dtab="players">Players</button>
           <button class="dtab" data-dtab="files">Files</button>
           <button class="dtab" data-dtab="props">Properties</button>
+          <button class="dtab" data-dtab="backups">Backups</button>
           <button class="dtab" data-dtab="anticheat">Anti-Cheat</button>
           <button class="dtab" data-dtab="plugins">Plugins/Mods</button>
         </div>
@@ -196,6 +369,7 @@
             <div class="side-panel">
               <div class="info-card">
                 <h3>Info</h3>
+                <canvas id="server-core" class="server-core" aria-hidden="true"></canvas>
                 <div class="detail-logo-row"><div id="detail-logo" class="server-avatar avatar-lime">MC</div><div><strong>Server logo</strong><small>Recommended: 256 × 256 px</small><label class="btn small logo-upload-label">Import logo<input id="logo-upload" type="file" accept="image/png,image/jpeg,image/webp" hidden onchange="importServerLogo()" /></label></div></div>
                 <div id="detail-info"></div>
               </div>
@@ -274,6 +448,32 @@
           </div>
         </div>
 
+        <div id="dtab-backups" class="dtab-panel">
+          <div class="panel-card">
+            <div class="wiki-heading"><div><span class="eyebrow">Safety net</span><h2>Server backups</h2></div><span id="backup-count" class="badge type">0 SAVED</span></div>
+            <p class="hint">A backup is a ZIP of this server folder. Logs, caches, and lock files are skipped. Restoring replaces every current file, so stop the server first.</p>
+            <div class="backup-controls">
+              <input type="text" id="backup-label" placeholder="Label this backup (optional)" maxlength="80" />
+              <label class="backup-option"><input type="checkbox" id="backup-world" checked /><span>Include world folders</span></label>
+              <label class="backup-option"><span>Keep last</span><input type="number" id="backup-keep" min="0" max="50" value="10" /></label>
+              <button class="btn primary small" id="btn-backup-create" onclick="createBackup()">Create backup</button>
+              <button class="btn small" onclick="loadBackups()">↻ Refresh</button>
+            </div>
+            <div id="backup-progress" class="task-progress" hidden><div class="task-bar"><i id="backup-bar-fill"></i></div><span id="backup-progress-text">Working...</span></div>
+            <div id="backup-list" class="backup-list"><div class="empty">No backups yet</div></div>
+          </div>
+          <div class="panel-card">
+            <div class="wiki-heading"><div><span class="eyebrow">Hands-off</span><h2>Automatic backups</h2></div><span id="auto-backup-badge" class="badge offline">Off</span></div>
+            <p class="hint">Runs on its own using the label-free "Automatic backup" tag, the world setting below, and the Keep last count above.</p>
+            <div class="backup-controls">
+              <label class="backup-option"><input type="checkbox" id="auto-backup-enabled" onchange="saveAutoBackup()" /><span>Enable automatic backups</span></label>
+              <label class="backup-option"><span>Every</span><select id="auto-backup-interval" onchange="saveAutoBackup()"><option value="1">1 hour</option><option value="3">3 hours</option><option value="6">6 hours</option><option value="12">12 hours</option><option value="24">24 hours</option><option value="72">3 days</option><option value="168">7 days</option></select></label>
+              <label class="backup-option"><input type="checkbox" id="auto-backup-world" checked onchange="saveAutoBackup()" /><span>Include world folders</span></label>
+            </div>
+            <p class="hint" id="auto-backup-last">Never run yet.</p>
+          </div>
+        </div>
+
         <div id="dtab-anticheat" class="dtab-panel">
           <div class="panel-card anti-cheat-panel">
             <div class="wiki-heading"><div><span class="eyebrow">Server protection</span><h2>Anti-cheat control</h2></div><span id="anticheat-plugin-status" class="badge offline">Checking plugins</span></div>
@@ -306,6 +506,19 @@
             </div>
           </div>
           <div class="panel-card component-actions"><h3>Component controls</h3><p class="hint">Reload plugin classes without a full restart, or restart the server to apply mod changes.</p><button class="btn success small" onclick="reloadComponents()">Reload plugins</button><button class="btn warning small" onclick="restartSelected()">Restart server</button></div>
+          <div class="panel-card update-checker">
+            <div class="wiki-heading"><div><span class="eyebrow">Modrinth</span><h2>Plugin & mod updates</h2></div><span id="update-check-badge" class="badge type">Not checked</span></div>
+            <p class="hint">Matches installed jars to Modrinth by file hash, then compares against the newest build for this Minecraft version.</p>
+            <div class="backup-controls">
+              <label class="backup-option"><input type="checkbox" id="auto-update-enabled" onchange="saveAutoUpdate()" /><span>Auto-check on a schedule</span></label>
+              <label class="backup-option"><span>Every</span><select id="auto-update-interval" onchange="saveAutoUpdate()"><option value="6">6 hours</option><option value="12">12 hours</option><option value="24">24 hours</option><option value="72">3 days</option></select></label>
+              <label class="backup-option"><input type="checkbox" id="auto-update-install" onchange="saveAutoUpdate()" /><span>Install updates automatically</span></label>
+              <button class="btn primary small" id="btn-check-updates" onclick="checkForUpdates()">Check now</button>
+              <button class="btn small" id="btn-apply-updates" onclick="applyAllUpdates()" hidden>Update all</button>
+            </div>
+            <p class="hint" id="update-check-last">No check run yet.</p>
+            <div id="update-results" class="backup-list"><div class="empty">Run a check to see available updates.</div></div>
+          </div>
           <div class="panel-card plugin-config-panel">
             <div class="wiki-heading"><div><span class="eyebrow">Plugin workspace</span><h2>Configuration files</h2></div><button class="btn small" onclick="loadPluginConfigs()">Refresh</button></div>
             <p class="hint">Edit YAML, YML, and JSON plugin configuration files without leaving the manager.</p>
@@ -318,6 +531,9 @@
   
   <div id="toast-container" class="toast-container"></div>
   
+  <script src="/static/vendor/leaflet.js"></script>
   <script src="/static/js/app.js"></script>
+  <script src="/static/js/map.js"></script>
+  <script type="module" src="/static/js/scene.js"></script>
 </body>
 </html>
