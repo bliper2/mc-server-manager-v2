@@ -29,21 +29,23 @@ Open `http://127.0.0.1:5000/` after the server starts.
 
 - Create Paper, Purpur, and Vanilla servers
 - Choose the Minecraft version, RAM, port, player limit, game mode, difficulty, MOTD, PvP, whitelist, and command-block settings
-- RAM presets, a slider, and an exact MB field covering 512 MB to 64 GB, with the installed and free memory of the host shown alongside
+- RAM presets and an exact MB field covering 512 MB to 64 GB, with the installed and free memory of the host shown alongside
 - Import an existing server folder of any size, uploaded in batches with progress
-- Backups: create, label, download, restore, and automatic pruning to the last N copies
+- Backups: create, label, download, restore, scheduled automatic runs, and pruning to the last N copies
 - Start, stop, restart, and delete servers
 - Live console output, command input, pause/resume updates, and log download
 - Live Minecraft latency for each server
 - Players, operators, whitelist, bans, and admin actions
 - Vulcan command shortcuts and an anti-cheat settings panel
 - Properties form editor and raw `server.properties` editor
-- Plugin and mod search through Modrinth
+- Plugin and mod search through Modrinth, plus update checking and one-click updates for installed jars
 - Top downloaded plugin and mod lists
 - Plugin YAML, YML, and JSON config editor with download support
 - Playit.gg agent configuration and start/stop controls
 - Server logo generation and custom logo import
-- Themes, fonts, density, refresh, and confirmation settings
+- Live map of online players with a moderation drawer, over RCON
+- 37 themes, seven fonts, density, refresh, and confirmation settings
+- Optional animated 3D backdrop and a server core that reacts to player count
 - Commands Wiki with searchable Minecraft command examples
 
 ## Live map
@@ -87,6 +89,27 @@ Open a server and use the **Backups** tab. A backup is a ZIP of that server fold
 - Restoring requires the server to be stopped. The current files are archived automatically first, then replaced with the contents of the backup.
 
 Backups live in `backups/<server id>/` next to `app.py` and are removed when the server is deleted.
+
+### Automatic backups
+
+The **Automatic backups** card on the same tab runs them on a schedule without you being there. Turn it
+on, pick an interval between one hour and seven days, and choose whether world folders are included; the
+**Keep last** count above applies to these too. A background check runs every five minutes and starts a
+backup when one is due, skipping a server that already has a backup or restore running. Automatic copies
+are tagged as such in the list, and the card shows when the last one ran.
+
+## Plugin and mod updates
+
+The **Plugin & mod updates** card in a server's Plugins/Mods tab hashes every installed jar and looks it
+up on Modrinth by file hash, so it identifies what a jar actually is rather than guessing from the
+filename. Anything it recognises is compared against the newest release for that server's Minecraft
+version.
+
+Update one jar or all of them at once, or set a schedule (6 hours to 3 days) and optionally let it
+install updates on its own. Jars that are not on Modrinth are listed as unmatched and left alone.
+
+Updating replaces a file on disk, so it works best with the server stopped — Windows will not let a
+running server's jar be overwritten, and the manager reports that rather than failing quietly.
 
 ## Importing a server folder
 
@@ -135,4 +158,6 @@ start.bat              Windows development launcher
 - The default Minecraft port is `25565`; each server should use a different port.
 - Modrinth, PaperMC, Purpur, and Mojang version APIs require an internet connection.
 - Restoring a backup replaces every file in the server folder, including `manager_meta.json`.
+- The live map needs RCON enabled on the server; without it the map shows no players.
+- Setting `MC_MANAGER_TOKEN` requires an `X-Admin-Token` header on the map, marker, and RCON routes. The rest of the API is unauthenticated, so treat this as a small extra lock rather than real protection.
 - Do not expose the panel directly to the public internet without adding authentication and access controls.
