@@ -134,6 +134,7 @@ function switchTab(name) {
   if (btn) btn.classList.add("active");
   if (name === "servers") loadServers();
   if (name === "create") { loadVersions(); loadHostMemory(); }
+  if (name === "settings") loadManagerUpdate();
   if (name === "map") window.mcMap?.onShow();
   else window.mcMap?.onHide();
   if (name === "browser") {
@@ -1600,6 +1601,103 @@ async function installProject(projectId, title, ptype) {
   
   if (data.ok) showToast(`Successfully installed to /${target}/`, "success");
   else showToast(data.error || "Failed to install", "error");
+}
+
+async function loadManagerUpdate() {
+  try {
+    const data = await requestJson("/api/manager/update");
+    document.getElementById("update-auto-check").checked = data.auto_check;
+    document.getElementById("update-auto-install").checked = data.auto_install;
+    document.getElementById("update-installed").textContent = data.installed
+      ? `${data.installed.slice(0, 7)} from ${data.repo}`
+      : `Unknown version of ${data.repo}`;
+    renderUpdateLatest(data.latest, data.installed);
+  } catch { /* settings tab can open before the panel finishes starting */ }
+}
+
+function renderUpdateLatest(latest, installed) {
+  const badge = document.getElementById("update-badge");
+  const detail = document.getElementById("update-detail");
+  const apply = document.getElementById("btn-update-apply");
+  if (!latest) {
+    badge.textContent = "Not checked";
+    badge.className = "badge offline";
+    detail.hidden = true;
+    apply.hidden = true;
+    return;
+  }
+  const behind = latest.update_available;
+  badge.textContent = behind ? (latest.count ? `${latest.count} update${latest.count === 1 ? "" : "s"}` : "Update available") : "Up to date";
+  badge.className = `badge ${behind ? "type" : "online"}`;
+  apply.hidden = !behind;
+  detail.hidden = false;
+  detail.innerHTML = `<div class="row"><span>Latest</span><span>${escapeHtml(latest.short)} · ${new Date(latest.date).toLocaleString()}</span></div>
+    <div class="row"><span>Message</span><span>${escapeHtml(latest.message)}</span></div>
+    ${latest.behind?.length ? `<ul class="update-log">${latest.behind.map(m => `<li>${escapeHtml(m)}</li>`).join("")}</ul>` : ""}`;
+}
+
+async function checkManagerUpdate() {
+  const button = document.getElementById("btn-update-check");
+  button.disabled = true;
+  button.textContent = "Checking...";
+  try {
+    const data = await requestJson("/api/manager/update/check", { method: "POST" });
+    if (!data.ok) throw new Error(data.error || "Check failed");
+    renderUpdateLatest(data.latest, data.installed);
+    showToast(data.latest.update_available ? "Update available" : "Already up to date", "success");
+  } catch (error) {
+    showToast(error.message, "error");
+  } finally {
+    button.disabled = false;
+    button.textContent = "Check now";
+  }
+}
+
+async function saveUpdateSettings() {
+  await requestJson("/api/manager/update/settings", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      auto_check: document.getElementById("update-auto-check").checked,
+      auto_install: document.getElementById("update-auto-install").checked
+    })
+  });
+}
+
+async function applyManagerUpdate(force) {
+  if (getSettings().confirmActions && !force &&
+      !confirm("Replace the manager's files with the latest version from GitHub? A copy of the current files is saved first.")) return;
+  const button = document.getElementById("btn-update-apply");
+  button.disabled = true;
+  button.textContent = "Installing...";
+  try {
+    const data = await requestJson("/api/manager/update/apply", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ force: Boolean(force) })
+    });
+    if (!data.ok) {
+      if (data.error?.includes("server is running") && confirm(`${data.error}\n\nUpdate anyway?`)) return applyManagerUpdate(true);
+      throw new Error(data.error || "Update failed");
+    }
+    showToast(`Updated to ${data.short}. Restart the manager to load it.`, "success");
+    document.getElementById("update-installed").textContent = `${data.short} (restart pending)`;
+    loadManagerUpdate();
+  } catch (error) {
+    showToast(error.message, "error");
+  } finally {
+    button.disabled = false;
+    button.textContent = "Install update";
+  }
+}
+
+async function rollbackManagerUpdate() {
+  if (getSettings().confirmActions && !confirm("Restore the manager files from the last snapshot?")) return;
+  try {
+    const data = await requestJson("/api/manager/update/rollback", { method: "POST" });
+    if (!data.ok) throw new Error(data.error || "Rollback failed");
+    showToast(`Restored ${data.files.length} files. Restart the manager.`, "success");
+    loadManagerUpdate();
+  } catch (error) {
+    showToast(error.message, "error");
+  }
 }
 
 function tickLiveClock() {

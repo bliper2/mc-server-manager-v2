@@ -44,6 +44,7 @@ Open `http://127.0.0.1:5000/` after the server starts.
 - Playit.gg agent configuration and start/stop controls
 - Server logo generation and custom logo import
 - Live map of online players with a moderation drawer, over RCON
+- Self-update from the GitHub repo, with a snapshot and rollback
 - 37 themes, seven fonts, density, refresh, and confirmation settings
 - Optional animated 3D backdrop and a server core that reacts to player count
 - Commands Wiki with searchable Minecraft command examples
@@ -111,6 +112,28 @@ install updates on its own. Jars that are not on Modrinth are listed as unmatche
 Updating replaces a file on disk, so it works best with the server stopped — Windows will not let a
 running server's jar be overwritten, and the manager reports that rather than failing quietly.
 
+## Updating the manager
+
+**Settings -> Updates** compares the installed copy against the GitHub repo it came from and installs new
+versions in place. It checks every six hours on its own; **Check now** does it immediately. When something
+is waiting you get the commit, its date, and the list of changes since your version.
+
+**Install update** downloads that commit as a zip and writes it over the manager's own files. It refuses
+an archive that does not contain `app.py` and `templates/index.html`, and it never writes to `servers/`,
+`backups/`, `.imports/`, `.venv/`, `.git/` or `update_state.json` — those paths are skipped even if they
+appear inside the archive. The files it is about to replace are zipped into `backups/_manager/` first, and
+**Roll back last update** restores the most recent of those. The last five are kept.
+
+The running process keeps the old code in memory, so restart the manager after updating. Updating is
+blocked while a Minecraft server is running unless you confirm.
+
+**Install automatically** is off by default. Turning it on lets the six-hour check apply updates without
+asking, which means code on your machine changes without you reading it first.
+
+The installed version is tracked in `update_state.json`; a copy cloned with git falls back to
+`git rev-parse HEAD` until the first update. Point `MC_MANAGER_REPO` at another `owner/name` to follow a
+fork.
+
 ## Importing a server folder
 
 Choose the folder in the Create tab. The browser uploads it in batches of about 24 MB, so folder size is not limited by the request size; a single file must stay below 240 MB. If an upload fails partway, the staged files are discarded and nothing is added to `servers/`.
@@ -144,6 +167,7 @@ static/js/map.js       Live map tab
 static/js/scene.js     WebGL backdrop and server core
 static/vendor/         Bundled Leaflet and three.js (no CDN, works offline)
 mock_rcon.py           Fake RCON server with simulated players for development
+update_state.json      Installed version and update preferences (created on first check)
 servers/               Local server files and metadata
 backups/               Server backup archives
 .imports/              Staging area used while a folder import is uploading

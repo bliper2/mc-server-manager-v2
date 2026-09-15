@@ -318,6 +318,32 @@
             <div class="setting-row"><div><strong>Ping interval</strong><small>How often live latency is measured.</small></div><select class="setting-input" data-setting="pingInterval"><option value="2">2 seconds</option><option value="5">5 seconds</option><option value="10">10 seconds</option></select></div>
           </section>
         </div>
+        <div class="settings-layout manager-update-layout">
+          <section class="settings-card span-2">
+            <div class="settings-card-heading"><div><span class="eyebrow">Manager</span><h2>Updates</h2></div><span id="update-badge" class="badge offline">Unknown</span></div>
+            <div class="setting-row">
+              <div><strong>Installed</strong><small id="update-installed">Checking...</small></div>
+              <button class="btn small" id="btn-update-check" onclick="checkManagerUpdate()">Check now</button>
+            </div>
+            <div class="setting-row">
+              <div><strong>Check automatically</strong><small>Looks at the GitHub repo every six hours.</small></div>
+              <label class="setting-switch"><input id="update-auto-check" type="checkbox" onchange="saveUpdateSettings()" /><span></span></label>
+            </div>
+            <div class="setting-row">
+              <div><strong>Install automatically</strong><small>Applies updates without asking. Leave off if you would rather read the changes first.</small></div>
+              <label class="setting-switch"><input id="update-auto-install" type="checkbox" onchange="saveUpdateSettings()" /><span></span></label>
+            </div>
+            <div id="update-detail" class="update-detail" hidden></div>
+            <div class="backup-controls">
+              <button class="btn primary small" id="btn-update-apply" onclick="applyManagerUpdate()" hidden>Install update</button>
+              <button class="btn small" onclick="rollbackManagerUpdate()">Roll back last update</button>
+            </div>
+            <p class="hint">Your servers, backups and settings are never touched by an update. The files being
+              replaced are saved to <code>backups/_manager/</code> first, and the manager has to be restarted
+              afterwards for the new code to load.</p>
+          </section>
+        </div>
+
         <div class="settings-footer"><span>Preferences are saved in this browser only.</span><button class="btn danger small" onclick="resetSettings()">Reset preferences</button></div>
       </section>
 
