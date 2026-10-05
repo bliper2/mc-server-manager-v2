@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="author" content="Mrkraps aka orgeco" />
+  <meta name="robots" content="noindex" />
+  <title>Sign in · MC Server Manager</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <link rel="stylesheet" href="/static/css/v3.css" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&family=Press+Start+2P&display=swap" rel="stylesheet" />
+</head>
+<body class="login-body" data-state="{{ state }}">
+  <div class="ambient-aurora" aria-hidden="true"><span></span><span></span><span></span></div>
+  <main class="login-shell">
+    <section class="login-card" aria-labelledby="login-title">
+      <div class="login-brand">
+        <span class="logo-icon">MC</span>
+        <div><strong>MC Manager</strong><small>v2 &middot; control center</small></div>
+      </div>
+
+      {% if state == "remote" %}
+      <h1 id="login-title">Owner not set up yet</h1>
+      <p class="login-sub">No owner account exists. Open the manager on the PC that runs it (<code>http://127.0.0.1:5000</code>) to create the owner account first.</p>
+      {% else %}
+      <h1 id="login-title">{{ "Create the owner account" if state == "open" else "Staff sign in" }}</h1>
+      <p class="login-sub">
+        {% if state == "open" %}
+        This account owns the panel. You can add up to two staff accounts afterwards. Passwords are stored as salted hashes only.
+        {% else %}
+        Only the owner and two staff accounts can enter.
+        {% endif %}
+      </p>
+      <form id="login-form" autocomplete="on" novalidate>
+        <div class="form-group">
+          <label for="username">Username</label>
+          <input type="text" id="username" name="username" autocomplete="username" maxlength="24" autofocus required />
+        </div>
+        <div class="form-group">
+          <label for="password">Password</label>
+          <div class="password-field">
+            <input type="password" id="password" name="password" autocomplete="{{ 'new-password' if state == 'open' else 'current-password' }}" maxlength="128" required />
+            <button type="button" class="icon-btn" id="toggle-password" aria-label="Show password" title="Show password">
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 10s3-5.5 8-5.5S18 10 18 10s-3 5.5-8 5.5S2 10 2 10z"/><circle cx="10" cy="10" r="2.2"/></svg>
+            </button>
+          </div>
+        </div>
+        {% if state == "open" %}
+        <div class="form-group">
+          <label for="confirm">Confirm password</label>
+          <input type="password" id="confirm" autocomplete="new-password" maxlength="128" required />
+          <small class="field-hint">At least 8 characters. Username: 3-24 letters, numbers, dot, dash or underscore.</small>
+        </div>
+        {% endif %}
+        <div id="login-error" class="login-error" role="alert" hidden></div>
+        <button class="btn primary large" type="submit" id="login-submit">{{ "Create owner account" if state == "open" else "Sign in" }}</button>
+      </form>
+      {% endif %}
+      <p class="login-foot">Mrkraps aka orgeco</p>
+    </section>
+  </main>
+  <script>
+    (function () {
+      var form = document.getElementById("login-form");
+      if (!form) return;
+      var setup = document.body.dataset.state === "open";
+      var error = document.getElementById("login-error");
+      var submit = document.getElementById("login-submit");
+      var password = document.getElementById("password");
+      var toggle = document.getElementById("toggle-password");
+      toggle.addEventListener("click", function () {
+        var show = password.type === "password";
+        password.type = show ? "text" : "password";
+        toggle.setAttribute("aria-label", show ? "Hide password" : "Show password");
+      });
+      function fail(message) {
+        error.textContent = message;
+        error.hidden = false;
+        form.classList.remove("shake");
+        void form.offsetWidth;
+        form.classList.add("shake");
+      }
+      form.addEventListener("submit", function (event) {
+        event.preventDefault();
+        error.hidden = true;
+        var username = document.getElementById("username").value.trim();
+        if (!username || !password.value) return fail("Enter your username and password");
+        if (setup && password.value !== document.getElementById("confirm").value) return fail("The two passwords do not match");
+        submit.disabled = true;
+        submit.classList.add("is-busy");
+        fetch(setup ? "/api/auth/setup" : "/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username: username, password: password.value })
+        }).then(function (response) {
+          return response.json().catch(function () { return { ok: false, error: "The manager sent an unexpected reply" }; });
+        }).then(function (data) {
+          if (data.ok) { window.location.reload(); return; }
+          fail(data.error || "Sign in failed");
+        }).catch(function () {
+          fail("Could not reach the manager");
+        }).then(function () {
+          submit.disabled = false;
+          submit.classList.remove("is-busy");
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

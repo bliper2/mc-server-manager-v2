@@ -1,13 +1,18 @@
 import * as THREE from "/static/vendor/three.module.min.js";
 
-const BACKDROP_COUNT = 220;
 const BACKDROP_FPS = 30;
-const SPREAD = { x: 34, y: 20, z: 26 };
+const ORB_COUNT = 3;
 
 const saved = window.getSettings ? window.getSettings() : {};
 let prefs = { enabled: saved.backdrop3d !== false, motion: saved.motion !== false };
 let backdrop = null;
 let core = null;
+let pointer = { x: 0, y: 0, tx: 0, ty: 0 };
+
+window.addEventListener("pointermove", event => {
+  pointer.tx = (event.clientX / window.innerWidth - 0.5) * 2;
+  pointer.ty = (event.clientY / window.innerHeight - 0.5) * 2;
+});
 
 function themeColors() {
   const style = getComputedStyle(document.body);
@@ -26,6 +31,23 @@ function themeColors() {
   };
 }
 
+let glowTexture = null;
+function makeGlowTexture() {
+  if (glowTexture) return glowTexture;
+  const size = 128;
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  const g = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  g.addColorStop(0, "rgba(255,255,255,0.9)");
+  g.addColorStop(0.35, "rgba(255,255,255,0.28)");
+  g.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, size, size);
+  glowTexture = new THREE.CanvasTexture(canvas);
+  return glowTexture;
+}
+
 function makeRenderer(canvas) {
   const renderer = new THREE.WebGLRenderer({
     canvas, alpha: true, antialias: false, powerPreference: "low-power"
@@ -40,43 +62,31 @@ function createBackdrop() {
   const colors = themeColors();
   const renderer = makeRenderer(canvas);
   const scene = new THREE.Scene();
-  scene.fog = new THREE.Fog(colors.bg, 16, 48);
-  const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 90);
-  camera.position.set(0, 0, 26);
+  scene.fog = new THREE.Fog(colors.bg, 14, 46);
+  const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 90);
+  camera.position.set(0, 2.5, 22);
 
-  scene.add(new THREE.AmbientLight(0xffffff, 0.55));
-  const key = new THREE.DirectionalLight(0xffffff, 0.9);
-  key.position.set(6, 10, 8);
-  scene.add(key);
-
-  const material = new THREE.MeshLambertMaterial({ transparent: true, opacity: 0.42 });
-  const mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), material, BACKDROP_COUNT);
-  mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(BACKDROP_COUNT * 3), 3);
-
-  const cubes = [];
-  const dummy = new THREE.Object3D();
-  for (let i = 0; i < BACKDROP_COUNT; i++) {
-    cubes.push({
-      x: (Math.random() - 0.5) * SPREAD.x,
-      y: (Math.random() - 0.5) * SPREAD.y,
-      z: -Math.random() * SPREAD.z,
-      scale: 0.28 + Math.random() * 0.85,
-      spin: (Math.random() - 0.5) * 0.25,
-      rise: 0.12 + Math.random() * 0.35,
-      phase: Math.random() * Math.PI * 2
-    });
+  // Soft glowing sprites (radial-gradient texture) drifting through the scene.
+  // Sprites fade to true zero alpha at their edge, so there is no hard circle silhouette like a lit sphere would show.
+  const orbs = [];
+  for (let i = 0; i < ORB_COUNT; i++) {
+    const material = new THREE.SpriteMaterial({ map: makeGlowTexture(), transparent: true, opacity: 0.2, blending: THREE.AdditiveBlending, depthWrite: false });
+    const mesh = new THREE.Sprite(material);
+    const home = { x: (Math.random() - 0.5) * 26, y: 1 + Math.random() * 8, z: -6 - Math.random() * 20 };
+    mesh.position.set(home.x, home.y, home.z);
+    const scale = 9 + Math.random() * 8;
+    mesh.scale.setScalar(scale);
+    scene.add(mesh);
+    orbs.push({ mesh, home, scale, drift: 0.4 + Math.random() * 0.5, phase: Math.random() * Math.PI * 2 });
   }
-  scene.add(mesh);
 
   const applyTheme = () => {
     const next = themeColors();
     scene.fog.color = next.bg;
-    for (let i = 0; i < BACKDROP_COUNT; i++) {
-      // Mixing toward the page colour keeps distant cubes from reading as confetti.
-      const shade = next.accent.clone().lerp(next.bg, 0.25 + Math.random() * 0.55);
-      mesh.setColorAt(i, shade);
-    }
-    mesh.instanceColor.needsUpdate = true;
+    orbs.forEach((orb, i) => {
+      const tone = i % 2 === 0 ? next.accent : next.muted;
+      orb.mesh.material.color = tone;
+    });
   };
   applyTheme();
 
@@ -90,19 +100,17 @@ function createBackdrop() {
   resize();
 
   const draw = elapsed => {
-    for (let i = 0; i < BACKDROP_COUNT; i++) {
-      const c = cubes[i];
-      const y = ((c.y + elapsed * c.rise + SPREAD.y / 2) % SPREAD.y) - SPREAD.y / 2;
-      dummy.position.set(c.x, y, c.z);
-      dummy.rotation.set(elapsed * c.spin + c.phase, elapsed * c.spin * 0.7, 0);
-      dummy.scale.setScalar(c.scale);
-      dummy.updateMatrix();
-      mesh.setMatrixAt(i, dummy.matrix);
-    }
-    mesh.instanceMatrix.needsUpdate = true;
-    camera.position.x = Math.sin(elapsed * 0.05) * 1.6;
-    camera.position.y = Math.cos(elapsed * 0.04) * 1.1;
-    camera.lookAt(0, 0, -8);
+    orbs.forEach(orb => {
+      orb.mesh.position.x = orb.home.x + Math.sin(elapsed * orb.drift + orb.phase) * 2.2;
+      orb.mesh.position.y = orb.home.y + Math.cos(elapsed * orb.drift * 0.8 + orb.phase) * 1.4;
+      const pulse = 1 + Math.sin(elapsed * 0.6 + orb.phase) * 0.06;
+      orb.mesh.scale.setScalar(orb.scale * pulse);
+    });
+    pointer.x += (pointer.tx - pointer.x) * 0.03;
+    pointer.y += (pointer.ty - pointer.y) * 0.03;
+    camera.position.x = pointer.x * 3 + Math.sin(elapsed * 0.05) * 1.2;
+    camera.position.y = 2.5 - pointer.y * 1.6;
+    camera.lookAt(0, 0, -10);
     renderer.render(scene, camera);
   };
 
@@ -227,15 +235,24 @@ function disposeBackdrop() {
   backdrop = null;
 }
 
+// Machines without WebGL (or with it blocked) throw while creating a renderer; the panel must still work.
+function safely(create) {
+  try { return create(); } catch (error) { console.warn("3D scene disabled:", error.message); return null; }
+}
+
+let sceneBroken = false;
+
 function sync() {
+  if (sceneBroken) return;
   const allowed = prefs.enabled && prefs.motion;
   if (allowed && !backdrop) {
-    backdrop = createBackdrop();
+    backdrop = safely(createBackdrop);
     if (backdrop) backdrop.canvas.hidden = false;
   } else if (!allowed && backdrop) {
     disposeBackdrop();
   }
-  if (!core) core = createCore();
+  if (!core) core = safely(createCore);
+  if (!core && !backdrop && allowed) sceneBroken = true;
   if (core) core.resize();
   if (backdrop || core) start(); else stop();
 }

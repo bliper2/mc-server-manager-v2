@@ -8,46 +8,55 @@
   <title>MC Server Manager v2</title>
   <link rel="stylesheet" href="/static/vendor/leaflet.css" />
   <link rel="stylesheet" href="/static/css/style.css" />
+  <link rel="stylesheet" href="/static/css/v3.css" />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fira+Code:wght@400;500;600&family=Manrope:wght@400;500;600;700;800&family=Orbitron:wght@500;600;700;800&family=Press+Start+2P&family=Rajdhani:wght@400;500;600;700&family=Space+Mono:wght@400;700&family=Space+Grotesk:wght@400;500;600;700&family=VT323&display=swap" rel="stylesheet" />
 </head>
-<body>
+<body data-role="{{ role }}" data-user="{{ user }}">
   <!-- MC-SERVER-MANAGER-OWNER: Mrkraps aka orgeco -->
   <span class="owner-watermark" data-owner="Mrkraps aka orgeco" aria-hidden="true">Mrkraps aka orgeco</span>
   <canvas id="backdrop" aria-hidden="true" hidden></canvas>
+  <div class="ambient-aurora" aria-hidden="true"><span></span><span></span><span></span></div>
   <div class="app">
     <aside class="sidebar">
-      <div class="logo">
+      <div class="sidebar-brand">
         <span class="logo-icon">MC</span>
-        <div><strong>MC Manager</strong><small>v2 / control center</small></div>
+        <div><strong>MC Manager</strong><small>v2 &middot; control center</small></div>
       </div>
-      <nav>
-        <button class="nav-btn active" data-tab="servers"><span class="nav-icon">01</span> Servers</button>
-        <button class="nav-btn" data-tab="create"><span class="nav-icon">02</span> Create</button>
-        <button class="nav-btn" data-tab="map"><span class="nav-icon">03</span> Live Map</button>
-        <button class="nav-btn" data-tab="browser"><span class="nav-icon">04</span> Plugins & Mods</button>
-        <button class="nav-btn" data-tab="settings"><span class="nav-icon">05</span> Settings</button>
-      </nav>
-      <div class="sidebar-footer"><small>Paper API fixed · File manager · Players</small><small>Dev / Owner: Mrkraps aka orgeco</small></div>
+      <div class="sidebar-nav" role="navigation" aria-label="Main">
+        <span class="nav-heading">Workspace</span>
+        <button class="nav-btn active" data-tab="servers"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3.5" width="14" height="5" rx="1.5"/><rect x="3" y="11.5" width="14" height="5" rx="1.5"/><path d="M6 6h.01M6 14h.01"/></svg><span>Servers</span></button>
+        <button class="nav-btn" data-tab="create"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10" cy="10" r="7"/><path d="M10 6.5v7M6.5 10h7"/></svg><span>Create</span></button>
+        <button class="nav-btn" data-tab="map"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 17s5.5-4.6 5.5-9A5.5 5.5 0 0 0 4.5 8c0 4.4 5.5 9 5.5 9z"/><circle cx="10" cy="8" r="2"/></svg><span>Live Map</span></button>
+        <button class="nav-btn" data-tab="browser"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 2.5l6.5 3.5v8L10 17.5 3.5 14V6L10 2.5z"/><path d="M3.5 6L10 9.5 16.5 6M10 9.5v8"/></svg><span>Plugins &amp; Mods</span></button>
+        <span class="nav-heading">System</span>
+        <button class="nav-btn" data-tab="settings"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10" cy="10" r="2.5"/><path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M4.7 15.3l1.4-1.4M13.9 6.1l1.4-1.4"/></svg><span>Settings</span></button>
+        <button class="nav-btn" id="nav-staff" data-tab="staff" data-owner-only><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 2.5l6 2.2v4.6c0 3.9-2.6 6.6-6 8.2-3.4-1.6-6-4.3-6-8.2V4.7l6-2.2z"/><path d="M7.5 10l1.7 1.7 3.3-3.4"/></svg><span>Staff panel</span></button>
+      </div>
+      <div class="sidebar-foot">
+        <div class="sidebar-user">
+          <span class="user-avatar" id="user-avatar" aria-hidden="true">?</span>
+          <div><strong id="user-name">{{ user }}</strong><small id="user-role">{{ role }}</small></div>
+          <button class="icon-btn" onclick="signOut()" title="Sign out" aria-label="Sign out"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3.5H5.5a1.5 1.5 0 0 0-1.5 1.5v10a1.5 1.5 0 0 0 1.5 1.5H8M12.5 6.5L16 10l-3.5 3.5M16 10H8"/></svg></button>
+        </div>
+        <div class="sidebar-meta"><span class="utility-time" id="live-clock">--:--:--</span><span class="topnav-owner-label">Mrkraps aka orgeco</span></div>
+      </div>
     </aside>
 
     <main class="main">
-      <div class="utility-bar"><span><i></i> Local workspace<span class="caret" aria-hidden="true">_</span></span><span class="utility-time" id="live-clock">--:--:--</span></div>
-
       <section id="tab-servers" class="tab active">
-        <header class="page-header">
-          <div><span class="eyebrow">Workspace overview · Dev / Owner: Mrkraps aka orgeco</span><h1>Your Servers</h1></div>
+        <header class="page-header compact-header">
+          <div><span class="eyebrow">Workspace overview<span class="caret" aria-hidden="true">_</span></span><h1>Your Servers</h1></div>
           <button class="btn primary" onclick="switchTab('create')"><span>+</span> New Server</button>
         </header>
 
+        <div id="server-summary" class="summary-strip"></div>
+
         <div class="server-toolbar">
-          <div id="server-summary" class="summary-strip"></div>
-          <div class="toolbar-actions">
-            <label class="sr-only" for="server-filter">Filter servers</label>
-            <select id="server-filter" class="toolbar-select">
-              <option value="all">All Servers</option>
-              <option value="online">Online</option>
-              <option value="offline">Offline</option>
-            </select>
+          <span class="section-label">All servers</span>
+          <div class="filter-group" id="server-filter" role="group" aria-label="Filter servers">
+            <button type="button" class="filter-pill active" data-filter="all">All</button>
+            <button type="button" class="filter-pill" data-filter="online">Running</button>
+            <button type="button" class="filter-pill" data-filter="offline">Stopped</button>
           </div>
         </div>
 
@@ -188,7 +197,13 @@
 
         <div class="map-layout">
           <div class="map-stage">
+            <div class="map-dim-tabs" id="map-dim-tabs">
+              <button class="dim-tab active" data-dim="overworld">Overworld</button>
+              <button class="dim-tab" data-dim="the_nether">Nether</button>
+              <button class="dim-tab" data-dim="the_end">End</button>
+            </div>
             <div id="map-canvas"></div>
+            <button class="btn small map-center-btn" id="map-center-btn" onclick="centerMap()" title="Fit all players in view"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2"/><path d="M8 1v3M8 12v3M1 8h3M12 8h3"/></svg></button>
             <div class="map-toolbar">
               <span id="map-coords" class="map-coords">X 0  Z 0</span>
               <input type="text" id="structure-label" placeholder="Structure name" maxlength="60" />
@@ -220,7 +235,10 @@
         <div id="player-drawer" class="drawer">
           <div class="drawer-head">
             <div><span class="eyebrow">Player</span><h2 id="drawer-name">Player</h2></div>
-            <button class="btn ghost small" onclick="closePlayerDrawer()">Close</button>
+            <div class="drawer-head-actions">
+              <button class="btn small" id="drawer-follow" onclick="toggleFollow()">Follow</button>
+              <button class="btn ghost small" onclick="closePlayerDrawer()">Close</button>
+            </div>
           </div>
           <div id="drawer-stats" class="info-card drawer-stats"></div>
 
@@ -318,19 +336,83 @@
             <div class="setting-row"><div><strong>Ping interval</strong><small>How often live latency is measured.</small></div><select class="setting-input" data-setting="pingInterval"><option value="2">2 seconds</option><option value="5">5 seconds</option><option value="10">10 seconds</option></select></div>
           </section>
         </div>
+        <div class="settings-layout manager-update-layout">
+          <section class="settings-card span-2">
+            <div class="settings-card-heading"><div><span class="eyebrow">Your account</span><h2>Password</h2></div><span class="badge type" id="account-role-badge">STAFF</span></div>
+            <p class="hint">Signed in as <strong id="account-username">{{ user }}</strong>. Passwords are stored as salted one-way hashes, so nobody, including the owner, can read them back.</p>
+            <form class="inline-form" id="password-form" autocomplete="off" onsubmit="changeOwnPassword(event)">
+              <input type="password" id="pw-current" placeholder="Current password" autocomplete="current-password" required />
+              <input type="password" id="pw-new" placeholder="New password (8+ characters)" autocomplete="new-password" minlength="8" required />
+              <button class="btn primary small" type="submit">Change password</button>
+            </form>
+          </section>
+        </div>
+        <div class="settings-layout manager-update-layout" data-owner-only>
+          <section class="settings-card span-2">
+            <div class="settings-card-heading"><div><span class="eyebrow">Manager</span><h2>Updates</h2></div><span id="update-badge" class="badge offline">Unknown</span></div>
+            <div class="setting-row">
+              <div><strong>Installed</strong><small id="update-installed">Checking...</small></div>
+              <button class="btn small" id="btn-update-check" onclick="checkManagerUpdate()">Check now</button>
+            </div>
+            <div class="setting-row">
+              <div><strong>Check automatically</strong><small>Looks at the GitHub repo every six hours.</small></div>
+              <label class="setting-switch"><input id="update-auto-check" type="checkbox" onchange="saveUpdateSettings()" /><span></span></label>
+            </div>
+            <div class="setting-row">
+              <div><strong>Install automatically</strong><small>Applies updates without asking. Leave off if you would rather read the changes first.</small></div>
+              <label class="setting-switch"><input id="update-auto-install" type="checkbox" onchange="saveUpdateSettings()" /><span></span></label>
+            </div>
+            <div id="update-detail" class="update-detail" hidden></div>
+            <div class="backup-controls">
+              <button class="btn primary small" id="btn-update-apply" onclick="applyManagerUpdate()" hidden>Install update</button>
+              <button class="btn small" onclick="rollbackManagerUpdate()">Roll back last update</button>
+            </div>
+            <p class="hint">Your servers, backups and settings are never touched by an update. The files being
+              replaced are saved to <code>backups/_manager/</code> first, and the manager has to be restarted
+              afterwards for the new code to load.</p>
+          </section>
+        </div>
+
         <div class="settings-footer"><span>Preferences are saved in this browser only.</span><button class="btn danger small" onclick="resetSettings()">Reset preferences</button></div>
+      </section>
+
+      <section id="tab-staff" class="tab" data-owner-only>
+        <header class="page-header">
+          <div><span class="eyebrow">Owner only</span><h1>Staff Panel</h1></div>
+          <span class="badge type" id="staff-slots">0 / 2 staff slots</span>
+        </header>
+        <div class="staff-layout">
+          <section class="panel-card">
+            <div class="wiki-heading"><div><span class="eyebrow">Access</span><h2>Accounts</h2></div></div>
+            <p class="hint">Only you and up to two staff can sign in. Staff can run servers, but cannot manage accounts or install manager updates.</p>
+            <div id="staff-list" class="staff-list"><div class="loading">Loading...</div></div>
+          </section>
+          <section class="panel-card" id="staff-add-card">
+            <div class="wiki-heading"><div><span class="eyebrow">Invite</span><h2>Add staff</h2></div></div>
+            <form class="stack-form" id="staff-form" autocomplete="off" onsubmit="createStaff(event)">
+              <div class="form-group"><label for="staff-username">Username</label><input type="text" id="staff-username" placeholder="3-24 letters, numbers, . - _" maxlength="24" autocomplete="off" required /></div>
+              <div class="form-group"><label for="staff-password">Password</label><input type="password" id="staff-password" placeholder="At least 8 characters" minlength="8" autocomplete="new-password" required /></div>
+              <button class="btn primary" type="submit" id="btn-staff-add">Create staff account</button>
+              <p class="hint">Share the username and password in person or a private chat. They can change it under Settings.</p>
+            </form>
+          </section>
+          <section class="panel-card staff-audit">
+            <div class="wiki-heading"><div><span class="eyebrow">Activity</span><h2>Recent actions</h2></div><button class="btn small" onclick="loadStaff()">Refresh</button></div>
+            <div id="staff-audit" class="audit-list"><div class="empty">No activity yet</div></div>
+          </section>
+        </div>
       </section>
 
       <section id="tab-detail" class="tab">
         <header class="page-header">
-          <button class="btn ghost" onclick="switchTab('servers')">← Back</button>
+          <button class="btn ghost" onclick="switchTab('servers')"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3.5L5 8l5 4.5"/></svg> Back</button>
           <h1 id="detail-title">Server</h1>
           <div class="header-actions">
-            <button class="btn success" onclick="startSelected()">▶ Start</button>
-            <button class="btn danger" onclick="stopSelected()">⏹ Stop</button>
-            <button class="btn warning" onclick="restartSelected()">↻ Restart</button>
+            <button class="btn success" onclick="startSelected(this)"><svg viewBox="0 0 16 16" fill="currentColor" stroke="none"><path d="M4 2.5v11l9-5.5-9-5.5z"/></svg> Start</button>
+            <button class="btn danger" onclick="stopSelected(this)"><svg viewBox="0 0 16 16" fill="currentColor" stroke="none"><rect x="3.5" y="3.5" width="9" height="9" rx="1.5"/></svg> Stop</button>
+            <button class="btn warning" onclick="restartSelected(this)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 8a5.5 5.5 0 0 1 9.6-3.7M13.5 8a5.5 5.5 0 0 1-9.6 3.7"/><path d="M12.6 2.5v2.5h-2.5M3.4 13.5V11h2.5"/></svg> Restart</button>
             <button class="btn accent" onclick="togglePlayit()">Playit.gg</button>
-            <button class="btn ghost" onclick="deleteSelected()">🗑 Delete</button>
+            <button class="btn ghost" onclick="deleteSelected(this)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5h10M6.5 4.5V3a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v1.5M4.5 4.5l.6 8.2a1 1 0 0 0 1 .9h3.8a1 1 0 0 0 1-.9l.6-8.2"/></svg> Delete</button>
           </div>
         </header>
 
@@ -363,7 +445,7 @@
               <div id="console-output" class="console"></div>
               <div class="console-input">
                 <input type="text" id="cmd-input" placeholder="Command + Enter..." autocomplete="off" />
-                <button class="btn small" onclick="sendCmd()">Send</button>
+                <button class="btn small primary" onclick="sendCmd()">Send</button>
               </div>
             </div>
             <div class="side-panel">
@@ -413,14 +495,14 @@
               <div><h4>Whitelist</h4><div id="wl-list" class="file-list"></div></div>
               <div><h4>Banned</h4><div id="ban-list" class="file-list"></div></div>
             </div>
-            <button class="btn small" onclick="loadPlayers()">↻ Refresh lists</button>
+            <button class="btn small" onclick="loadPlayers()"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 8a5.5 5.5 0 0 1 9.6-3.7M13.5 8a5.5 5.5 0 0 1-9.6 3.7"/><path d="M12.6 2.5v2.5h-2.5M3.4 13.5V11h2.5"/></svg> Refresh lists</button>
           </div>
         </div>
 
         <div id="dtab-files" class="dtab-panel">
           <div class="panel-card">
             <div class="fs-toolbar">
-              <button class="btn small" onclick="fsUp()">↑ Up</button>
+              <button class="btn small" onclick="fsUp()"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10l4-4 4 4"/></svg> Up</button>
               <span id="fs-path" class="fs-path">/</span>
               <button class="btn small" onclick="fsNewFolder()">New folder</button>
               <label class="btn small upload-btn">Upload <input type="file" id="fs-upload" hidden onchange="fsUpload()" /></label>
@@ -457,7 +539,7 @@
               <label class="backup-option"><input type="checkbox" id="backup-world" checked /><span>Include world folders</span></label>
               <label class="backup-option"><span>Keep last</span><input type="number" id="backup-keep" min="0" max="50" value="10" /></label>
               <button class="btn primary small" id="btn-backup-create" onclick="createBackup()">Create backup</button>
-              <button class="btn small" onclick="loadBackups()">↻ Refresh</button>
+              <button class="btn small" onclick="loadBackups()"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 8a5.5 5.5 0 0 1 9.6-3.7M13.5 8a5.5 5.5 0 0 1-9.6 3.7"/><path d="M12.6 2.5v2.5h-2.5M3.4 13.5V11h2.5"/></svg> Refresh</button>
             </div>
             <div id="backup-progress" class="task-progress" hidden><div class="task-bar"><i id="backup-bar-fill"></i></div><span id="backup-progress-text">Working...</span></div>
             <div id="backup-list" class="backup-list"><div class="empty">No backups yet</div></div>
@@ -529,7 +611,19 @@
     </main>
   </div>
   
-  <div id="toast-container" class="toast-container"></div>
+  <dialog id="password-dialog" class="modal" aria-labelledby="password-dialog-title">
+    <form method="dialog">
+      <h3 id="password-dialog-title">Reset password</h3>
+      <p class="hint" id="password-dialog-hint"></p>
+      <input type="password" id="password-dialog-input" placeholder="New password (8+ characters)" minlength="8" maxlength="128" autocomplete="new-password" required />
+      <div class="modal-actions">
+        <button class="btn ghost" value="cancel" formnovalidate>Cancel</button>
+        <button class="btn primary" value="ok">Save password</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast-container" class="toast-container" aria-live="polite"></div>
   
   <script src="/static/vendor/leaflet.js"></script>
   <script src="/static/js/app.js"></script>

@@ -37,6 +37,13 @@ class Player:
         y = 64 + math.sin(angle * 0.4) * 12
         return round(x, 2), round(y, 2), round(z, 2)
 
+    def yaw(self, now):
+        angle = now * self.speed + self.seed
+        dx = -math.sin(angle) * self.speed
+        dz = math.cos(angle * 0.7) * 0.7 * self.speed
+        screen_heading = math.degrees(math.atan2(dx, -dz)) % 360
+        return round((screen_heading + 180) % 360, 1)
+
 
 PLAYERS = [Player(name, i * 1.7) for i, name in enumerate(NAMES[:5])]
 ISSUED = []
@@ -60,6 +67,9 @@ def handle_command(text):
             return f"{name} has the following entity data: {player.health}f"
         if field == "Dimension":
             return f'{name} has the following entity data: "minecraft:overworld"'
+        if field == "Rotation":
+            yaw = player.yaw(started)
+            return f"{name} has the following entity data: [{yaw}f, 0.0f]"
     ISSUED.append(text)
     print(f"  command: {text}")
     return f"Ran: {text}"

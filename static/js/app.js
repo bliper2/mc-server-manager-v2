@@ -1,3 +1,12 @@
+// Any 401 from the API means the session ended (signed out, password reset, account removed).
+const nativeFetch = window.fetch.bind(window);
+window.fetch = async (...args) => {
+  const response = await nativeFetch(...args);
+  const url = String(args[0]?.url || args[0] || "");
+  if (response.status === 401 && !url.startsWith("/api/auth/")) window.location.reload();
+  return response;
+};
+
 let currentServerId = null;
 let consoleOffset = 0;
 let consoleTimer = null;
@@ -13,6 +22,11 @@ let consoleAutoRefresh = true;
 let devReloadVersion = null;
 let createLogo = { mark: "MC", style: "avatar-lime" };
 let backupJobTimer = null;
+let serversHtml = "";
+let serversSettled = false;
+let summaryKey = "";
+let consoleLineCount = 0;
+const IS_OWNER = document.body.dataset.role === "owner";
 const OWNER_WATERMARK = "MC-SERVER-MANAGER / Mrkraps aka orgeco";
 const defaultSettings = { theme: "control", font: "dm", accent: "lime", density: "comfortable", motion: true, confirmActions: true, autoRefresh: true, refreshInterval: "30", autoPing: true, pingInterval: "5", consoleAutoRefresh: true, backdrop3d: true };
 
@@ -92,23 +106,48 @@ function shuffleServerLogo() {
   preview.className = `server-avatar ${createLogo.style}`;
 }
 
-function showToast(message, type = 'success') {
-  const container = document.getElementById('toast-container');
+const TOAST_ICONS = {
+  success: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 10.5l3.5 3.5 7.5-8"/></svg>',
+  error: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 5.5l9 9M14.5 5.5l-9 9"/></svg>',
+  warning: '<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 6v5M10 14.2v.1"/></svg>'
+};
+
+function showToast(message, type = "success") {
+  const container = document.getElementById("toast-container");
   if (!container) return;
-  const toast = document.createElement('div');
+  while (container.children.length >= 4) container.firstElementChild.remove();
+  const life = type === "error" ? 6500 : 3800;
+  const toast = document.createElement("div");
   toast.className = `toast ${type}`;
-  toast.textContent = message;
+  toast.setAttribute("role", type === "error" ? "alert" : "status");
+  toast.style.setProperty("--life", `${life}ms`);
+  toast.innerHTML = `<span class="toast-icon">${TOAST_ICONS[type] || TOAST_ICONS.success}</span><span class="toast-text"></span>`;
+  toast.querySelector(".toast-text").textContent = message;
+  const dismiss = () => {
+    if (toast.classList.contains("leaving")) return;
+    toast.classList.add("leaving");
+    setTimeout(() => toast.remove(), 260);
+  };
+  toast.addEventListener("click", dismiss);
   container.appendChild(toast);
-  
-  setTimeout(() => {
-    toast.style.opacity = '0';
-    toast.style.transform = 'translateX(100%)';
-    setTimeout(() => toast.remove(), 300);
-  }, 3500);
+  setTimeout(dismiss, life);
 }
 
 function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, m => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[m]));
+}
+
+// Safe for use inside an inline onclick="fn(...)": JSON gives a valid JS string literal, escapeHtml makes it attribute-safe.
+function jsArg(value) {
+  return escapeHtml(JSON.stringify(String(value)));
+}
+
+async function withBusy(button, task) {
+  if (!button || button.classList.contains("is-busy")) return undefined;
+  button.classList.add("is-busy");
+  button.disabled = true;
+  try { return await task(); }
+  finally { button.classList.remove("is-busy"); button.disabled = false; }
 }
 
 async function requestJson(url, options = {}) {
@@ -130,10 +169,13 @@ function switchTab(name) {
   document.querySelectorAll(".nav-btn").forEach(b => b.classList.remove("active"));
   const tab = document.getElementById("tab-" + name);
   if (tab) tab.classList.add("active");
+  window.scrollTo({ top: 0 });
   const btn = document.querySelector(`.nav-btn[data-tab="${name}"]`);
   if (btn) btn.classList.add("active");
-  if (name === "servers") loadServers();
+  if (name === "servers") { serversSettled = false; loadServers(); }
+  if (name === "staff") loadStaff();
   if (name === "create") { loadVersions(); loadHostMemory(); }
+  if (name === "settings") loadManagerUpdate();
   if (name === "map") window.mcMap?.onShow();
   else window.mcMap?.onHide();
   if (name === "browser") {
@@ -152,32 +194,89 @@ function renderServerSummary(servers) {
   const total = servers.length;
   const online = servers.filter(s => s.running).length;
   const totalRam = servers.reduce((sum, s) => sum + (Number(s.ram) || 2048), 0);
+  const primaryPort = servers[0]?.port || 25565;
+  const key = [total, online, totalRam, primaryPort].join("|");
+  if (key === summaryKey) return;
+  summaryKey = key;
   summary.innerHTML = `
     <div class="summary-pill">
-      <span class="summary-label">Servers</span>
-      <strong>${total}</strong>
+      <span class="summary-label">Total Servers</span>
+      <strong data-count-to="${total}">0</strong>
     </div>
     <div class="summary-pill online-pill">
-      <span class="summary-label">Online</span>
-      <strong>${online}</strong>
+      <span class="summary-label">Online Servers</span>
+      <strong data-count-to="${online}">0</strong>
     </div>
     <div class="summary-pill">
-      <span class="summary-label">Memory</span>
-      <strong>${totalRam} MB</strong>
+      <span class="summary-label">Total Memory</span>
+      <strong>${formatRam(totalRam)}</strong>
     </div>
     <div class="summary-pill">
-      <span class="summary-label">Ports</span>
-      <strong>${servers.filter(s => s.port).length ? servers.map(s => s.port || 25565).join(', ') : '—'}</strong>
+      <span class="summary-label">Primary Port</span>
+      <strong>${total ? primaryPort : "—"}</strong>
     </div>
   `;
+  animateCounts(summary);
+}
+
+function animateCounts(root) {
+  if (document.body.classList.contains("reduced-motion")) {
+    root.querySelectorAll("[data-count-to]").forEach(el => { el.textContent = el.dataset.countTo; });
+    return;
+  }
+  root.querySelectorAll("[data-count-to]").forEach(el => {
+    const target = Number(el.dataset.countTo) || 0;
+    const start = performance.now();
+    const duration = 420;
+    const step = now => {
+      const p = Math.min(1, (now - start) / duration);
+      const eased = 1 - Math.pow(1 - p, 3);
+      el.textContent = Math.round(target * eased);
+      if (p < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  });
+}
+
+function serverCardHtml(s, i) {
+  const id = jsArg(s.id);
+  const logo = s.logo?.file
+    ? `<img class="server-avatar server-avatar-image" src="/api/server/${encodeURIComponent(s.id)}/logo/${encodeURIComponent(s.logo.file)}" alt="" />`
+    : `<div class="server-avatar ${escapeHtml(s.logo?.style || "avatar-lime")}" aria-hidden="true">${escapeHtml(s.logo?.mark || s.name.slice(0, 2).toUpperCase())}</div>`;
+  const power = s.running
+    ? '<svg viewBox="0 0 16 16" fill="currentColor" stroke="none"><rect x="3.5" y="3.5" width="9" height="9" rx="1.5"/></svg> Stop'
+    : '<svg viewBox="0 0 16 16" fill="currentColor" stroke="none"><path d="M4 2.5v11l9-5.5-9-5.5z"/></svg> Start';
+  return `
+      <div class="server-card ${s.running ? "online" : "offline"}" style="--i:${i}" tabindex="0" role="button" aria-label="Open ${escapeHtml(s.name)}" onclick="openServer(${id})">
+        <div class="card-top">
+          <div class="server-name-line">${logo}<h3>${escapeHtml(s.name)}</h3></div>
+          <div class="server-status">
+            <span class="status-dot ${s.running ? "online" : "offline"}"></span>
+            <span class="badge ${s.running ? "online" : "offline"}">${s.running ? "Online" : "Offline"}</span>
+          </div>
+        </div>
+        <div class="meta">
+          <span class="badge type">${escapeHtml(s.type)} ${escapeHtml(s.version)}</span>
+          <span class="server-ping" data-ping-for="${escapeHtml(s.id)}">-- ms</span>
+        </div>
+        <div class="server-meta-grid">
+          <div><span>RAM</span><strong>${formatRam(s.ram || 2048)}</strong></div>
+          <div><span>Port</span><strong>${s.port || 25565}</strong></div>
+          <div><span>Created</span><strong>${new Date(s.created || Date.now()).toLocaleDateString()}</strong></div>
+        </div>
+        <div class="card-actions">
+          <button class="mini-btn ${s.running ? "" : "success"}" onclick="event.stopPropagation(); togglePowerFromCard(this, ${id}, ${s.running})">${power}</button>
+          <button class="mini-btn danger" onclick="event.stopPropagation(); deleteServerFromCard(this, ${id})">✕ Delete</button>
+        </div>
+      </div>`;
 }
 
 async function loadServers() {
   const el = document.getElementById("servers-list");
-  const filter = document.getElementById("server-filter");
-  if (filter) serverFilter = filter.value || "all";
-  el.innerHTML = '<div class="loading">Loading...</div>';
-    try {
+  if (!el) return;
+  // Show placeholders only when there is nothing on screen yet; background refreshes swap content silently.
+  if (!serversHtml) el.innerHTML = '<div class="skeleton-card"></div><div class="skeleton-card"></div><div class="skeleton-card"></div>';
+  try {
     const res = await fetch("/api/servers");
     if (!res.ok) throw new Error("Failed to load servers");
     const servers = await res.json();
@@ -187,37 +286,23 @@ async function loadServers() {
       if (serverFilter === "offline") return !s.running;
       return true;
     });
-    if (!filtered.length) {
-      el.innerHTML = '<div class="empty">No servers in this view. Create one or switch filters.</div>';
-      return;
+    const html = filtered.length
+      ? filtered.map(serverCardHtml).join("")
+      : `<div class="empty-card dashed">
+        <svg viewBox="0 0 16 16" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="12" height="4" rx="1"/><rect x="2" y="9" width="12" height="4" rx="1"/><circle cx="4.5" cy="5" r=".5" fill="currentColor" stroke="none"/><circle cx="4.5" cy="11" r=".5" fill="currentColor" stroke="none"/></svg>
+        <p>${servers.length ? "No servers match this filter." : "No servers yet."}</p>
+        <button class="btn primary small" onclick="switchTab('create')"><span>+</span> New Server</button>
+      </div>`;
+    if (html !== serversHtml) {
+      el.classList.toggle("settled", serversSettled);
+      el.innerHTML = html;
+      serversHtml = html;
     }
-    el.innerHTML = filtered.map((s, i) => `
-      <div class="server-card ${s.running ? 'online' : 'offline'}" style="--i:${i}" onclick="openServer('${s.id}')">
-        <div class="card-top">
-          <div class="server-status">
-            <span class="status-dot ${s.running ? 'online' : 'offline'}"></span>
-            <span class="badge ${s.running ? "online" : "offline"}">${s.running ? "Online" : "Offline"}</span>
-          </div>
-          <div class="card-actions">
-            <button class="mini-btn" onclick="event.stopPropagation(); togglePowerFromCard(this, '${s.id}', ${s.running})">${s.running ? '⏹ Stop' : '▶ Start'}</button>
-            <button class="mini-btn danger" onclick="event.stopPropagation(); deleteServerFromCard(this, '${s.id}')">✕ Delete</button>
-          </div>
-        </div>
-        <div class="server-name-line">${s.logo?.file ? `<img class="server-avatar server-avatar-image" src="/api/server/${encodeURIComponent(s.id)}/logo/${encodeURIComponent(s.logo.file)}" alt="" />` : `<div class="server-avatar ${escapeHtml(s.logo?.style || 'avatar-lime')}" aria-hidden="true">${escapeHtml(s.logo?.mark || s.name.slice(0, 2).toUpperCase())}</div>`}<h3>${escapeHtml(s.name)}</h3></div>
-        <div class="meta">
-          <span class="badge type">${escapeHtml(s.type)}</span>
-          <span>${escapeHtml(s.version)}</span>
-            <span class="server-ping" data-ping-for="${escapeHtml(s.id)}">-- ms</span>
-        </div>
-        <div class="server-meta-grid">
-          <div><span>RAM</span><strong>${s.ram || 2048} MB</strong></div>
-          <div><span>Port</span><strong>${s.port || 25565}</strong></div>
-          <div><span>Created</span><strong>${new Date(s.created || Date.now()).toLocaleDateString()}</strong></div>
-        </div>
-      </div>`).join("");
-    refreshServerPings(filtered);
+    serversSettled = true;
+    if (filtered.length) refreshServerPings(filtered);
   } catch (e) {
-    el.innerHTML = `<div class="empty">Error: ${e.message}</div>`;
+    serversHtml = "";
+    el.innerHTML = `<div class="empty">Error: ${escapeHtml(e.message)}</div>`;
   }
 }
 
@@ -284,7 +369,20 @@ async function deleteServerFromCard(button, id) {
   }
 }
 
-document.getElementById("server-filter").addEventListener("change", loadServers);
+document.getElementById("server-filter").addEventListener("click", event => {
+  const btn = event.target.closest(".filter-pill");
+  if (!btn) return;
+  serverFilter = btn.dataset.filter;
+  document.querySelectorAll("#server-filter .filter-pill").forEach(p => p.classList.toggle("active", p === btn));
+  serversSettled = false;
+  loadServers();
+});
+document.getElementById("servers-list").addEventListener("keydown", event => {
+  if ((event.key === "Enter" || event.key === " ") && event.target.classList?.contains("server-card")) {
+    event.preventDefault();
+    event.target.click();
+  }
+});
 document.getElementById("create-type").addEventListener("change", loadVersions);
 document.getElementById("create-name").addEventListener("input", updateCreateLogo);
 document.getElementById("create-max-players").addEventListener("input", event => {
@@ -617,17 +715,27 @@ async function openServer(id) {
   document.querySelectorAll(".dtab-panel").forEach(p => p.classList.remove("active"));
   document.querySelector('.dtab[data-dtab="console"]').classList.add("active");
   document.getElementById("dtab-console").classList.add("active");
-  document.getElementById("console-output").textContent = ""; // Clear console on load
+  clearConsole();
 
-  const servers = await (await fetch("/api/servers")).json();
-  const s = servers.find(x => x.id === id);
-  if (!s) return;
+  let s;
+  try {
+    const servers = await (await fetch("/api/servers")).json();
+    s = servers.find(x => x.id === id);
+  } catch (error) {
+    showToast(`Could not load the server: ${error.message}`, "error");
+  }
+  if (!s) {
+    if (currentServerId === id) currentServerId = null;
+    stopConsolePolling();
+    switchTab("servers");
+    return;
+  }
   document.getElementById("detail-title").textContent = s.name;
   renderDetailLogo(s);
   document.getElementById("detail-info").innerHTML = `
-    <div class="row"><span>Type</span><span>${s.type}</span></div>
-    <div class="row"><span>Version</span><span>${s.version}</span></div>
-    <div class="row"><span>RAM</span><span>${s.ram || 2048} MB</span></div>
+    <div class="row"><span>Type</span><span>${escapeHtml(s.type)}</span></div>
+    <div class="row"><span>Version</span><span>${escapeHtml(s.version)}</span></div>
+    <div class="row"><span>RAM</span><span>${formatRam(s.ram || 2048)}</span></div>
     <div class="row"><span>Port</span><span>${s.port || 25565}</span></div>
     <div class="row"><span>Ping</span><span id="detail-ping">Checking...</span></div>
     <div class="row"><span>Created</span><span>${new Date(s.created || Date.now()).toLocaleDateString()}</span></div>`;
@@ -668,12 +776,19 @@ function stopDetailPing() {
 function renderDetailLogo(server) {
   const target = document.getElementById("detail-logo");
   if (!target) return;
+  let next;
   if (server.logo?.file) {
-    target.outerHTML = `<img id="detail-logo" class="server-avatar server-avatar-image" src="/api/server/${encodeURIComponent(server.id)}/logo/${encodeURIComponent(server.logo.file)}" alt="${escapeHtml(server.name)} logo" />`;
+    next = document.createElement("img");
+    next.className = "server-avatar server-avatar-image";
+    next.alt = `${server.name} logo`;
+    next.src = `/api/server/${encodeURIComponent(server.id)}/logo/${encodeURIComponent(server.logo.file)}?v=${Date.now()}`;
   } else {
-    target.className = `server-avatar ${escapeHtml(server.logo?.style || "avatar-lime")}`;
-    target.textContent = escapeHtml(server.logo?.mark || server.name.slice(0, 2).toUpperCase());
+    next = document.createElement("div");
+    next.className = `server-avatar ${server.logo?.style || "avatar-lime"}`;
+    next.textContent = server.logo?.mark || server.name.slice(0, 2).toUpperCase();
   }
+  next.id = "detail-logo";
+  target.replaceWith(next);
 }
 
 async function importServerLogo() {
@@ -726,6 +841,33 @@ function updateConsoleControls() {
 function clearConsole() {
   const output = document.getElementById("console-output");
   if (output) output.textContent = "";
+  consoleLineCount = 0;
+}
+
+function consoleLineClass(text) {
+  if (/\b(ERROR|SEVERE|FATAL)\b|Exception|\bat [\w.$]+\(/.test(text)) return "log-error";
+  if (/\bWARN(ING)?\b/.test(text)) return "log-warn";
+  if (/ joined the game| left the game|Done \(|For help, type/.test(text)) return "log-event";
+  return "";
+}
+
+function appendConsoleLines(out, lines) {
+  const fragment = document.createDocumentFragment();
+  lines.forEach(text => {
+    const row = document.createElement("span");
+    const kind = consoleLineClass(text);
+    row.className = kind ? `log-line ${kind}` : "log-line";
+    row.textContent = text;
+    fragment.append(row, "\n");
+  });
+  out.appendChild(fragment);
+  consoleLineCount += lines.length;
+  // Keep the DOM bounded: a busy server prints thousands of lines an hour.
+  while (consoleLineCount > 4000 && out.firstChild) {
+    out.firstChild.remove();
+    out.firstChild?.remove();
+    consoleLineCount -= 1;
+  }
 }
 
 function toggleConsoleRefresh() {
@@ -794,7 +936,7 @@ function loadCommandWiki() {
     const query = search.value.toLowerCase();
     const selected = category.value;
     const filtered = minecraftCommands.filter(([name, group, usage, description]) => (selected === "all" || group === selected) && [name, group, usage, description].some(value => value.toLowerCase().includes(query)));
-    document.getElementById("command-list").innerHTML = filtered.map(([name, group, usage, description]) => `<article class="command-entry"><div><span class="badge type">${group}</span><h3>/${name}</h3><p>${description}</p><code>${usage}</code></div><button class="btn small" onclick="useWikiCommand('${escapeHtml(usage)}')">Use in console</button></article>`).join("") || '<div class="empty">No commands match this search.</div>';
+    document.getElementById("command-list").innerHTML = filtered.map(([name, group, usage, description]) => `<article class="command-entry"><div><span class="badge type">${group}</span><h3>/${name}</h3><p>${description}</p><code>${usage}</code></div><button class="btn small" onclick="useWikiCommand(${jsArg(usage)})">Use in console</button></article>`).join("") || '<div class="empty">No commands match this search.</div>';
   };
   search.oninput = render; category.onchange = render; render();
 }
@@ -886,39 +1028,53 @@ async function stopPlayit() {
   loadPlayit();
 }
 
-async function startSelected() {
+async function startSelected(button) {
   if (!currentServerId) return;
-  const data = await (await fetch(`/api/server/${currentServerId}/start`, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: "{}"
-  })).json();
-  
-  if (data.ok) { 
-    showToast("Server started", 'success');
-    updateStatusBadge(true); 
-    startConsolePolling(); 
-  } else {
-    showToast(data.message || "Failed to start", 'error');
-  }
+  await withBusy(button, async () => {
+    try {
+      const data = await (await fetch(`/api/server/${currentServerId}/start`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: "{}"
+      })).json();
+      if (data.ok) {
+        showToast("Server started", "success");
+        updateStatusBadge(true);
+        startConsolePolling();
+      } else {
+        showToast(data.message || data.error || "Failed to start", "error");
+      }
+    } catch (error) {
+      showToast(error.message, "error");
+    }
+  });
 }
 
-async function stopSelected() {
+async function stopSelected(button) {
   if (!currentServerId) return;
-  const data = await (await fetch(`/api/server/${currentServerId}/stop`, { method: "POST" })).json();
-  showToast(data.message || "Server stopping", data.ok ? 'success' : 'warning');
-  updateStatusBadge(false);
+  await withBusy(button, async () => {
+    try {
+      const data = await (await fetch(`/api/server/${currentServerId}/stop`, { method: "POST" })).json();
+      showToast(data.message || data.error || "Server stopping", data.ok ? "success" : "warning");
+      if (data.ok) updateStatusBadge(false);
+    } catch (error) {
+      showToast(error.message, "error");
+    }
+  });
 }
 
-async function deleteSelected() {
+async function deleteSelected(button) {
   if (!currentServerId || (getSettings().confirmActions && !confirm("Are you sure you want to delete this server forever? This cannot be undone."))) return;
-  try {
-    await fetch(`/api/server/${currentServerId}/delete`, { method: "POST" });
-    showToast("Server deleted", "success");
-    currentServerId = null;
-    stopConsolePolling();
-    switchTab("servers");
-  } catch (e) {
-    showToast("Error deleting server", "error");
-  }
+  await withBusy(button, async () => {
+    try {
+      const data = await (await fetch(`/api/server/${currentServerId}/delete`, { method: "POST" })).json();
+      if (!data.ok) throw new Error(data.error || "Could not delete this server");
+      showToast("Server deleted", "success");
+      currentServerId = null;
+      stopConsolePolling();
+      switchTab("servers");
+    } catch (error) {
+      showToast(error.message, "error");
+    }
+  });
 }
 
 async function sendCmd() {
@@ -944,22 +1100,20 @@ function stopConsolePolling() {
 }
 
 async function pollConsole() {
-  if (!currentServerId) return;
+  const serverId = currentServerId;
+  if (!serverId) return;
   try {
-    const data = await (await fetch(`/api/server/${currentServerId}/console?since=${consoleOffset}`)).json();
+    const data = await (await fetch(`/api/server/${serverId}/console?since=${consoleOffset}`)).json();
+    if (serverId !== currentServerId) return;
     updateStatusBadge(data.running);
+    const out = document.getElementById("console-output");
+    if (data.reset) clearConsole();
     if (data.lines?.length) {
-      const out = document.getElementById("console-output");
-      // Smart Auto-scroll check
-      const isScrolledToBottom = out.scrollHeight - out.clientHeight <= out.scrollTop + 50;
-      
-      out.textContent += (out.textContent ? "\n" : "") + data.lines.join("\n");
-      consoleOffset = data.total;
-      
-      if (isScrolledToBottom) {
-        out.scrollTop = out.scrollHeight;
-      }
+      const atBottom = out.scrollHeight - out.clientHeight <= out.scrollTop + 50;
+      appendConsoleLines(out, data.lines);
+      if (atBottom) out.scrollTop = out.scrollHeight;
     }
+    if (typeof data.total === "number") consoleOffset = data.total;
   } catch {}
 }
 
@@ -990,7 +1144,7 @@ function renderActivePlayers(players) {
   count.className = `badge ${players.length ? "online" : "offline"}`;
   window.mcScene?.setServerState({ players: players.length });
   list.innerHTML = players.length
-    ? players.map(name => `<button class="active-player" onclick="selectActivePlayer('${escapeHtml(name)}')"><span class="status-dot online"></span><strong>${escapeHtml(name)}</strong><span>Use</span></button>`).join("")
+    ? players.map(name => `<button class="active-player" onclick="selectActivePlayer(${jsArg(name)})"><span class="status-dot online"></span><strong>${escapeHtml(name)}</strong><span>Use</span></button>`).join("")
     : '<div class="empty">No players online</div>';
 }
 
@@ -1036,18 +1190,18 @@ async function loadFs() {
   document.getElementById("fs-path").textContent = "/" + (fsPath || "");
   const data = await (await fetch(`/api/server/${currentServerId}/fs/list?path=${encodeURIComponent(fsPath)}`)).json();
   if (!data.ok) {
-    document.getElementById("fs-list").innerHTML = `<div class="empty">${data.error}</div>`;
+    document.getElementById("fs-list").innerHTML = `<div class="empty">${escapeHtml(data.error)}</div>`;
     return;
   }
   document.getElementById("fs-list").innerHTML = data.items.map(item => `
     <div class="fs-item">
-      <span onclick="${item.is_dir ? `fsEnter('${escapeHtml(item.name)}')` : `fsOpen('${escapeHtml(item.name)}')`}" class="name">
+      <span onclick="${item.is_dir ? `fsEnter(${jsArg(item.name)})` : `fsOpen(${jsArg(item.name)})`}" class="name">
         ${item.is_dir ? "📁" : "📄"} ${escapeHtml(item.name)}
       </span>
       <span class="meta">${item.is_dir ? "" : (item.size/1024).toFixed(1)+" KB"}</span>
       <span class="actions">
-        ${!item.is_dir ? `<button class="btn small" onclick="fsDownload('${escapeHtml(item.name)}')">↓</button>` : ""}
-        <button class="btn danger small" onclick="fsDelete('${escapeHtml(item.name)}')">✕</button>
+        ${!item.is_dir ? `<button class="btn small" onclick="fsDownload(${jsArg(item.name)})">↓</button>` : ""}
+        <button class="btn danger small" onclick="fsDelete(${jsArg(item.name)})">✕</button>
       </span>
     </div>`).join("") || '<div class="empty">Empty folder</div>';
 }
@@ -1310,7 +1464,7 @@ async function loadPluginConfigs() {
   const list = document.getElementById("plugin-config-list");
   if (!list) return;
   const configs = await (await fetch(`/api/server/${currentServerId}/plugin-configs`)).json();
-  list.innerHTML = configs.length ? configs.map(config => `<button class="plugin-config-item" onclick="openPluginConfig('${escapeHtml(config.path)}')"><span>${escapeHtml(config.path)}</span><small>${(config.size / 1024).toFixed(1)} KB</small></button>`).join("") : '<div class="empty">No YAML or JSON configs found</div>';
+  list.innerHTML = configs.length ? configs.map(config => `<button class="plugin-config-item" onclick="openPluginConfig(${jsArg(config.path)})"><span>${escapeHtml(config.path)}</span><small>${(config.size / 1024).toFixed(1)} KB</small></button>`).join("") : '<div class="empty">No YAML or JSON configs found</div>';
 }
 
 async function openPluginConfig(path) {
@@ -1337,11 +1491,17 @@ async function reloadComponents() {
   showToast(data.message || data.error, data.ok ? "success" : "warning");
 }
 
-async function restartSelected() {
+async function restartSelected(button) {
   if (!currentServerId || (getSettings().confirmActions && !confirm("Restart this server now?"))) return;
-  const data = await (await fetch(`/api/server/${currentServerId}/restart`, { method: "POST" })).json();
-  showToast(data.message || data.error, data.ok ? "success" : "error");
-  if (data.ok) { updateStatusBadge(true); startConsolePolling(); }
+  await withBusy(button, async () => {
+    try {
+      const data = await (await fetch(`/api/server/${currentServerId}/restart`, { method: "POST" })).json();
+      showToast(data.message || data.error, data.ok ? "success" : "error");
+      if (data.ok) { updateStatusBadge(true); startConsolePolling(); }
+    } catch (error) {
+      showToast(error.message, "error");
+    }
+  });
 }
 
 function stopBackupPolling() {
@@ -1397,9 +1557,9 @@ async function loadBackups() {
           ${backup.label ? `<small>${escapeHtml(backup.label)}</small>` : ""}
         </div>
         <div class="backup-item-actions">
-          <button class="btn small" onclick="downloadBackup('${backup.name}')">↓ Download</button>
-          <button class="btn warning small" onclick="restoreBackup(this, '${backup.name}')"${data.running ? " disabled title='Stop the server first'" : ""}>↺ Restore</button>
-          <button class="btn danger small" onclick="deleteBackup(this, '${backup.name}')" title="Delete this backup">✕</button>
+          <button class="btn small" onclick="downloadBackup(${jsArg(backup.name)})">↓ Download</button>
+          <button class="btn warning small" onclick="restoreBackup(this, ${jsArg(backup.name)})"${data.running ? " disabled title='Stop the server first'" : ""}>↺ Restore</button>
+          <button class="btn danger small" onclick="deleteBackup(this, ${jsArg(backup.name)})" title="Delete this backup">✕</button>
         </div>
       </div>`).join("") : '<div class="empty">No backups yet. Create one before updating plugins or the server version.</div>';
   } catch (error) {
@@ -1504,10 +1664,26 @@ async function loadServerSelect() {
   try {
     const servers = await (await fetch("/api/servers")).json();
     sel.innerHTML = '<option value="">Target server...</option>' +
-      servers.map(s => `<option value="${s.id}">${escapeHtml(s.name)} (${s.type} ${s.version})</option>`).join("");
+      servers.map(s => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.name)} (${escapeHtml(s.type)} ${escapeHtml(s.version)})</option>`).join("");
   } catch (e) {
     console.error("Could not load servers for dropdown");
   }
+}
+
+const PAGE_SIZE = 30;
+const searchState = { q: "", type: "plugin", offset: 0, loading: false, done: false };
+const featuredState = {
+  plugin: { offset: 0, loading: false, done: false },
+  mod: { offset: 0, loading: false, done: false }
+};
+
+function projectCard(h, type, i, cls) {
+  return `
+      <article class="${cls}" style="--i:${i % 12}">
+        ${h.icon_url ? `<img src="${escapeHtml(h.icon_url)}" alt="" loading="lazy" onerror="this.style.display='none'" />` : '<div class="project-icon"></div>'}
+        <div class="info"><h4>${escapeHtml(h.title)}</h4><p>${escapeHtml(h.description || "")}</p><div class="stats">↓ ${(h.downloads || 0).toLocaleString()} downloads${h.author ? ` · ${escapeHtml(h.author)}` : ""}</div></div>
+        <button class="btn primary small" onclick="installProject(${jsArg(h.project_id || h.slug)}, ${jsArg(h.title)}, ${jsArg(type)})">Install</button>
+      </article>`;
 }
 
 async function searchModrinth() {
@@ -1518,89 +1694,410 @@ async function searchModrinth() {
     showToast("Please enter a search term", "warning");
     return;
   }
-  
+  searchState.q = q;
+  searchState.type = type;
+  searchState.offset = 0;
+  searchState.done = false;
   results.innerHTML = '<div class="loading">Searching...</div>';
   try {
-    const data = await (await fetch(`/api/modrinth/search?q=${encodeURIComponent(q)}&type=${type}`)).json();
+    const data = await (await fetch(`/api/modrinth/search?q=${encodeURIComponent(q)}&type=${type}&offset=0&limit=${PAGE_SIZE}`)).json();
     const hits = data.hits || [];
-    if (!hits.length) {
-      results.innerHTML = '<div class="empty">No results found</div>';
-      return;
-    }
-    results.innerHTML = hits.map(h => `
-      <div class="result-card">
-        ${h.icon_url ? `<img src="${h.icon_url}" alt="" onerror="this.style.display='none'" />` : "<div style='width:48px;height:48px;background:#242836;border-radius:8px'></div>"}
-        <div class="info">
-          <h4>${escapeHtml(h.title)}</h4>
-          <p>${escapeHtml(h.description || "")}</p>
-          <div class="stats">↓ ${(h.downloads||0).toLocaleString()} · ${escapeHtml(h.author||"")}</div>
-        </div>
-        <button class="btn primary small" onclick="installProject('${h.project_id||h.slug}','${escapeHtml(h.title)}','${type}')">Install</button>
-      </div>`).join("");
+    searchState.offset = hits.length;
+    searchState.done = hits.length < PAGE_SIZE;
+    results.innerHTML = hits.length
+      ? hits.map((h, i) => projectCard(h, type, i, "result-card")).join("")
+      : '<div class="empty">No results found</div>';
   } catch (e) {
-    results.innerHTML = `<div class="empty">Search Error: ${e.message}</div>`;
+    searchState.done = true;
+    results.innerHTML = `<div class="empty">Search Error: ${escapeHtml(e.message)}</div>`;
   }
 }
 
-function renderProjectCards(hits, type) {
-  return hits.length
-    ? hits.map(h => `
-      <article class="featured-item">
-        ${h.icon_url ? `<img src="${h.icon_url}" alt="" onerror="this.style.display='none'" />` : '<div class="project-icon"></div>'}
-        <div class="info"><h4>${escapeHtml(h.title)}</h4><p>${escapeHtml(h.description || "")}</p><div class="stats">↓ ${(h.downloads || 0).toLocaleString()} downloads</div></div>
-        <button class="btn primary small" onclick="installProject('${h.project_id || h.slug}','${escapeHtml(h.title)}','${type}')">Install</button>
-      </article>`).join("")
-    : '<div class="empty">No projects found</div>';
+async function loadMoreSearch() {
+  if (searchState.loading || searchState.done || !searchState.q) return;
+  searchState.loading = true;
+  try {
+    const data = await (await fetch(`/api/modrinth/search?q=${encodeURIComponent(searchState.q)}&type=${searchState.type}&offset=${searchState.offset}&limit=${PAGE_SIZE}`)).json();
+    const hits = data.hits || [];
+    searchState.done = hits.length < PAGE_SIZE;
+    if (hits.length) {
+      document.getElementById("search-results").insertAdjacentHTML("beforeend",
+        hits.map((h, i) => projectCard(h, searchState.type, searchState.offset + i, "result-card")).join(""));
+      searchState.offset += hits.length;
+    }
+  } catch (e) {
+    searchState.done = true;
+  } finally {
+    searchState.loading = false;
+  }
 }
 
 async function loadFeatured() {
   const plugins = document.getElementById("featured-plugins");
   const mods = document.getElementById("featured-mods");
   if (!plugins || !mods) return;
+  featuredState.plugin = { offset: 0, loading: false, done: false };
+  featuredState.mod = { offset: 0, loading: false, done: false };
   try {
     const [pluginData, modData] = await Promise.all([
-      (await fetch("/api/modrinth/featured?type=plugin")).json(),
-      (await fetch("/api/modrinth/featured?type=mod")).json()
+      (await fetch("/api/modrinth/featured?type=plugin&offset=0")).json(),
+      (await fetch("/api/modrinth/featured?type=mod&offset=0")).json()
     ]);
-    plugins.innerHTML = renderProjectCards(pluginData.hits || [], "plugin");
-    mods.innerHTML = renderProjectCards(modData.hits || [], "mod");
+    const pluginHits = pluginData.hits || [];
+    const modHits = modData.hits || [];
+    featuredState.plugin.offset = pluginHits.length;
+    featuredState.plugin.done = pluginHits.length < PAGE_SIZE;
+    featuredState.mod.offset = modHits.length;
+    featuredState.mod.done = modHits.length < PAGE_SIZE;
+    plugins.innerHTML = pluginHits.length
+      ? pluginHits.map((h, i) => projectCard(h, "plugin", i, "featured-item")).join("")
+      : '<div class="empty">No projects found</div>';
+    mods.innerHTML = modHits.length
+      ? modHits.map((h, i) => projectCard(h, "mod", i, "featured-item")).join("")
+      : '<div class="empty">No projects found</div>';
   } catch (e) {
+    featuredState.plugin.done = true;
+    featuredState.mod.done = true;
     plugins.innerHTML = '<div class="empty">Featured plugins unavailable</div>';
     mods.innerHTML = '<div class="empty">Featured mods unavailable</div>';
   }
 }
+
+async function loadMoreFeatured(type) {
+  const state = featuredState[type];
+  const list = document.getElementById(type === "plugin" ? "featured-plugins" : "featured-mods");
+  if (!state || !list || state.loading || state.done) return;
+  state.loading = true;
+  try {
+    const data = await (await fetch(`/api/modrinth/featured?type=${type}&offset=${state.offset}`)).json();
+    const hits = data.hits || [];
+    state.done = hits.length < PAGE_SIZE;
+    if (hits.length) {
+      list.insertAdjacentHTML("beforeend",
+        hits.map((h, i) => projectCard(h, type, state.offset + i, "featured-item")).join(""));
+      state.offset += hits.length;
+    }
+  } catch (e) {
+    state.done = true;
+  } finally {
+    state.loading = false;
+  }
+}
+
+function nearBottom(el, threshold = 220) {
+  return el.scrollTop + el.clientHeight >= el.scrollHeight - threshold;
+}
+
+document.getElementById("featured-plugins").addEventListener("scroll", e => {
+  if (nearBottom(e.target)) loadMoreFeatured("plugin");
+});
+document.getElementById("featured-mods").addEventListener("scroll", e => {
+  if (nearBottom(e.target)) loadMoreFeatured("mod");
+});
+window.addEventListener("scroll", () => {
+  if (!document.getElementById("tab-browser")?.classList.contains("active")) return;
+  if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 300) loadMoreSearch();
+});
+
 document.getElementById("search-q").addEventListener("keydown", e => { if (e.key === "Enter") searchModrinth(); });
 
 async function installProject(projectId, title, ptype) {
   const serverId = document.getElementById("search-server").value;
-  if (!serverId) { 
-    showToast("Please select a target server from the dropdown", "warning"); 
-    return; 
+  if (!serverId) {
+    showToast("Please select a target server from the dropdown", "warning");
+    document.getElementById("search-server").focus();
+    return;
   }
-  
-  showToast(`Finding latest version for ${title}...`, "success");
-  const versions = await (await fetch(`/api/modrinth/versions/${projectId}`)).json();
-  if (!versions.length) { 
-    showToast("No compatible versions found", "error"); 
-    return; 
+  try {
+    showToast(`Finding latest version for ${title}...`, "success");
+    const server = (await (await fetch("/api/servers")).json()).find(item => item.id === serverId);
+    const query = server?.version && /^1\./.test(server.version) ? `?version=${encodeURIComponent(server.version)}` : "";
+    const versions = await (await fetch(`/api/modrinth/versions/${encodeURIComponent(projectId)}${query}`)).json();
+    if (!versions.length) {
+      showToast(`No ${title} build found for this server's version`, "error");
+      return;
+    }
+    const ver = versions[0];
+    const file = (ver.files || []).find(f => f.primary) || (ver.files || [])[0];
+    if (!file) {
+      showToast("No downloadable file found", "error");
+      return;
+    }
+    const target = ptype === "mod" ? "mods" : "plugins";
+    const data = await (await fetch(`/api/server/${serverId}/install`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: file.url, filename: file.filename, target })
+    })).json();
+    if (data.ok) showToast(`Installed ${title} to /${target}/`, "success");
+    else showToast(data.error || "Failed to install", "error");
+  } catch (error) {
+    showToast(`Install failed: ${error.message}`, "error");
   }
-  
-  const ver = versions[0];
-  const file = (ver.files || []).find(f => f.primary) || (ver.files || [])[0];
-  if (!file) { 
-    showToast("No downloadable file found", "error"); 
-    return; 
-  }
-  
-  const target = ptype === "mod" ? "mods" : "plugins";
-  const data = await (await fetch(`/api/server/${serverId}/install`, {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url: file.url, filename: file.filename, target })
-  })).json();
-  
-  if (data.ok) showToast(`Successfully installed to /${target}/`, "success");
-  else showToast(data.error || "Failed to install", "error");
 }
+
+async function loadManagerUpdate() {
+  try {
+    const data = await requestJson("/api/manager/update");
+    document.getElementById("update-auto-check").checked = data.auto_check;
+    document.getElementById("update-auto-install").checked = data.auto_install;
+    document.getElementById("update-installed").textContent = data.installed
+      ? `${data.installed.slice(0, 7)} from ${data.repo}`
+      : `Unknown version of ${data.repo}`;
+    renderUpdateLatest(data.latest, data.installed);
+  } catch { /* settings tab can open before the panel finishes starting */ }
+}
+
+function renderUpdateLatest(latest, installed) {
+  const badge = document.getElementById("update-badge");
+  const detail = document.getElementById("update-detail");
+  const apply = document.getElementById("btn-update-apply");
+  if (!latest) {
+    badge.textContent = "Not checked";
+    badge.className = "badge offline";
+    detail.hidden = true;
+    apply.hidden = true;
+    return;
+  }
+  const behind = latest.update_available;
+  badge.textContent = behind ? (latest.count ? `${latest.count} update${latest.count === 1 ? "" : "s"}` : "Update available") : "Up to date";
+  badge.className = `badge ${behind ? "type" : "online"}`;
+  apply.hidden = !behind;
+  detail.hidden = false;
+  detail.innerHTML = `<div class="row"><span>Latest</span><span>${escapeHtml(latest.short)} · ${new Date(latest.date).toLocaleString()}</span></div>
+    <div class="row"><span>Message</span><span>${escapeHtml(latest.message)}</span></div>
+    ${latest.behind?.length ? `<ul class="update-log">${latest.behind.map(m => `<li>${escapeHtml(m)}</li>`).join("")}</ul>` : ""}`;
+}
+
+async function checkManagerUpdate() {
+  const button = document.getElementById("btn-update-check");
+  button.disabled = true;
+  button.textContent = "Checking...";
+  try {
+    const data = await requestJson("/api/manager/update/check", { method: "POST" });
+    if (!data.ok) throw new Error(data.error || "Check failed");
+    renderUpdateLatest(data.latest, data.installed);
+    showToast(data.latest.update_available ? "Update available" : "Already up to date", "success");
+  } catch (error) {
+    showToast(error.message, "error");
+  } finally {
+    button.disabled = false;
+    button.textContent = "Check now";
+  }
+}
+
+async function saveUpdateSettings() {
+  await requestJson("/api/manager/update/settings", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      auto_check: document.getElementById("update-auto-check").checked,
+      auto_install: document.getElementById("update-auto-install").checked
+    })
+  });
+}
+
+async function applyManagerUpdate(force) {
+  if (getSettings().confirmActions && !force &&
+      !confirm("Replace the manager's files with the latest version from GitHub? A copy of the current files is saved first.")) return;
+  const button = document.getElementById("btn-update-apply");
+  button.disabled = true;
+  button.textContent = "Installing...";
+  try {
+    const data = await requestJson("/api/manager/update/apply", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ force: Boolean(force) })
+    });
+    if (!data.ok) {
+      if (data.error?.includes("server is running") && confirm(`${data.error}\n\nUpdate anyway?`)) return applyManagerUpdate(true);
+      throw new Error(data.error || "Update failed");
+    }
+    showToast(`Updated to ${data.short}. Restart the manager to load it.`, "success");
+    document.getElementById("update-installed").textContent = `${data.short} (restart pending)`;
+    loadManagerUpdate();
+  } catch (error) {
+    showToast(error.message, "error");
+  } finally {
+    button.disabled = false;
+    button.textContent = "Install update";
+  }
+}
+
+async function rollbackManagerUpdate() {
+  if (getSettings().confirmActions && !confirm("Restore the manager files from the last snapshot?")) return;
+  try {
+    const data = await requestJson("/api/manager/update/rollback", { method: "POST" });
+    if (!data.ok) throw new Error(data.error || "Rollback failed");
+    showToast(`Restored ${data.files.length} files. Restart the manager.`, "success");
+    loadManagerUpdate();
+  } catch (error) {
+    showToast(error.message, "error");
+  }
+}
+
+function initAccountUi() {
+  const user = document.body.dataset.user || "";
+  const role = document.body.dataset.role || "staff";
+  const avatar = document.getElementById("user-avatar");
+  if (avatar) avatar.textContent = (user[0] || "?").toUpperCase();
+  const roleLabel = document.getElementById("user-role");
+  if (roleLabel) roleLabel.textContent = role === "owner" ? "Owner" : "Staff";
+  const badge = document.getElementById("account-role-badge");
+  if (badge) badge.textContent = role === "owner" ? "OWNER" : "STAFF";
+}
+
+async function signOut() {
+  try { await fetch("/api/auth/logout", { method: "POST" }); } catch {}
+  window.location.reload();
+}
+
+async function changeOwnPassword(event) {
+  event.preventDefault();
+  const form = event.target;
+  const submit = form.querySelector("button[type=submit]");
+  await withBusy(submit, async () => {
+    try {
+      const data = await requestJson("/api/auth/password", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ current: document.getElementById("pw-current").value, new: document.getElementById("pw-new").value })
+      });
+      if (!data.ok) throw new Error(data.error || "Could not change the password");
+      form.reset();
+      showToast("Password changed", "success");
+    } catch (error) {
+      showToast(error.message, "error");
+    }
+  });
+}
+
+function relativeTime(iso) {
+  if (!iso) return "never";
+  const seconds = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+  if (seconds < 60) return "just now";
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)} h ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
+async function loadStaff() {
+  if (!IS_OWNER) return;
+  const list = document.getElementById("staff-list");
+  try {
+    const data = await requestJson("/api/staff");
+    if (!data.ok) throw new Error(data.error || "Could not load staff");
+    document.getElementById("staff-slots").textContent = `${data.staff_count} / ${data.max_staff} staff slots`;
+    const full = data.staff_count >= data.max_staff;
+    document.getElementById("staff-add-card").classList.toggle("is-full", full);
+    document.querySelectorAll("#staff-form input, #btn-staff-add").forEach(node => { node.disabled = full; });
+    list.innerHTML = data.accounts.map((account, i) => `
+      <div class="staff-row" style="--i:${i}">
+        <span class="user-avatar ${account.role}" aria-hidden="true">${escapeHtml(account.username[0].toUpperCase())}</span>
+        <div class="staff-meta">
+          <strong>${escapeHtml(account.username)}</strong>
+          <small>Last sign-in ${relativeTime(account.last_login)} · added ${new Date(account.created).toLocaleDateString()}</small>
+        </div>
+        <span class="badge ${account.role === "owner" ? "online" : "type"}">${account.role === "owner" ? "OWNER" : "STAFF"}</span>
+        ${account.role === "staff" ? `<div class="staff-actions">
+          <button class="btn small" onclick="resetStaffPassword(${jsArg(account.username)})">Reset password</button>
+          <button class="btn danger small" onclick="removeStaff(this, ${jsArg(account.username)})">Remove</button>
+        </div>` : ""}
+      </div>`).join("");
+    const audit = document.getElementById("staff-audit");
+    audit.innerHTML = data.audit.length ? data.audit.map(entry => {
+      const extra = entry.target || entry.ip || (entry.status ? `HTTP ${entry.status}` : "");
+      return `<div class="audit-row"><time>${new Date(entry.at).toLocaleString()}</time><strong>${escapeHtml(entry.user)}</strong><span>${escapeHtml(entry.action)}</span><small>${escapeHtml(extra)}</small></div>`;
+    }).join("") : '<div class="empty">No activity yet</div>';
+  } catch (error) {
+    list.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
+  }
+}
+
+async function createStaff(event) {
+  event.preventDefault();
+  await withBusy(document.getElementById("btn-staff-add"), async () => {
+    try {
+      const data = await requestJson("/api/staff", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: document.getElementById("staff-username").value.trim(), password: document.getElementById("staff-password").value })
+      });
+      if (!data.ok) throw new Error(data.error || "Could not create the account");
+      document.getElementById("staff-form").reset();
+      showToast("Staff account created", "success");
+    } catch (error) {
+      showToast(error.message, "error");
+    }
+  });
+  loadStaff();
+}
+
+function askNewPassword(username) {
+  const dialog = document.getElementById("password-dialog");
+  const input = document.getElementById("password-dialog-input");
+  document.getElementById("password-dialog-hint").textContent = `Choose a new password for ${username}. They will be signed out everywhere.`;
+  input.value = "";
+  return new Promise(resolve => {
+    dialog.addEventListener("close", () => resolve(dialog.returnValue === "ok" ? input.value : null), { once: true });
+    dialog.showModal();
+    input.focus();
+  });
+}
+
+async function resetStaffPassword(username) {
+  const password = await askNewPassword(username);
+  if (!password) return;
+  try {
+    const data = await requestJson(`/api/staff/${encodeURIComponent(username)}/password`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password })
+    });
+    if (!data.ok) throw new Error(data.error || "Could not reset the password");
+    showToast(`Password reset for ${username}`, "success");
+  } catch (error) {
+    showToast(error.message, "error");
+  }
+  loadStaff();
+}
+
+async function removeStaff(button, username) {
+  if (!confirm(`Remove ${username}? They lose access immediately.`)) return;
+  await withBusy(button, async () => {
+    try {
+      const data = await requestJson(`/api/staff/${encodeURIComponent(username)}/delete`, { method: "POST" });
+      if (!data.ok) throw new Error(data.error || "Could not remove the account");
+      showToast(`Removed ${username}`, "success");
+    } catch (error) {
+      showToast(error.message, "error");
+    }
+  });
+  loadStaff();
+}
+
+// Press ripple and cursor spotlight. Pure decoration, skipped when motion is off.
+const RIPPLE_SELECTOR = ".btn, .mini-btn, .nav-btn, .dtab, .filter-pill, .ram-preset, .dim-tab, .console-tool, .icon-btn";
+const SPOTLIGHT_SELECTOR = ".server-card, .summary-pill, .panel-card, .settings-card, .info-card, .featured-item, .result-card, .form-section, .create-commit";
+let spotlightFrame = null;
+
+document.addEventListener("pointerdown", event => {
+  if (!(event.target instanceof Element) || document.body.classList.contains("reduced-motion")) return;
+  const el = event.target.closest(RIPPLE_SELECTOR);
+  if (!el || el.disabled) return;
+  const box = el.getBoundingClientRect();
+  el.style.setProperty("--rx", `${event.clientX - box.left}px`);
+  el.style.setProperty("--ry", `${event.clientY - box.top}px`);
+  el.classList.remove("rippling");
+  void el.offsetWidth;
+  el.classList.add("rippling");
+  setTimeout(() => el.classList.remove("rippling"), 650);
+});
+
+document.addEventListener("pointermove", event => {
+  if (spotlightFrame || !(event.target instanceof Element)) return;
+  const card = event.target.closest(SPOTLIGHT_SELECTOR);
+  if (!card) return;
+  const { clientX, clientY } = event;
+  spotlightFrame = requestAnimationFrame(() => {
+    spotlightFrame = null;
+    const box = card.getBoundingClientRect();
+    card.style.setProperty("--mx", `${clientX - box.left}px`);
+    card.style.setProperty("--my", `${clientY - box.top}px`);
+  });
+}, { passive: true });
 
 function tickLiveClock() {
   const el = document.getElementById("live-clock");
@@ -1608,6 +2105,7 @@ function tickLiveClock() {
 }
 
 // Init
+initAccountUi();
 initSettings();
 loadHostMemory();
 watchDevelopmentFiles();

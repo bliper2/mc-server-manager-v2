@@ -29,21 +29,24 @@ Open `http://127.0.0.1:5000/` after the server starts.
 
 - Create Paper, Purpur, and Vanilla servers
 - Choose the Minecraft version, RAM, port, player limit, game mode, difficulty, MOTD, PvP, whitelist, and command-block settings
-- RAM presets, a slider, and an exact MB field covering 512 MB to 64 GB, with the installed and free memory of the host shown alongside
+- RAM presets and an exact MB field covering 512 MB to 64 GB, with the installed and free memory of the host shown alongside
 - Import an existing server folder of any size, uploaded in batches with progress
-- Backups: create, label, download, restore, and automatic pruning to the last N copies
+- Backups: create, label, download, restore, scheduled automatic runs, and pruning to the last N copies
 - Start, stop, restart, and delete servers
 - Live console output, command input, pause/resume updates, and log download
 - Live Minecraft latency for each server
 - Players, operators, whitelist, bans, and admin actions
 - Vulcan command shortcuts and an anti-cheat settings panel
 - Properties form editor and raw `server.properties` editor
-- Plugin and mod search through Modrinth
+- Plugin and mod search through Modrinth, plus update checking and one-click updates for installed jars
 - Top downloaded plugin and mod lists
 - Plugin YAML, YML, and JSON config editor with download support
 - Playit.gg agent configuration and start/stop controls
 - Server logo generation and custom logo import
-- Themes, fonts, density, refresh, and confirmation settings
+- Live map of online players with a moderation drawer, over RCON
+- Self-update from the GitHub repo, with a snapshot and rollback
+- 37 themes, seven fonts, density, refresh, and confirmation settings
+- Optional animated 3D backdrop and a server core that reacts to player count
 - Commands Wiki with searchable Minecraft command examples
 
 ## Live map
@@ -88,6 +91,49 @@ Open a server and use the **Backups** tab. A backup is a ZIP of that server fold
 
 Backups live in `backups/<server id>/` next to `app.py` and are removed when the server is deleted.
 
+### Automatic backups
+
+The **Automatic backups** card on the same tab runs them on a schedule without you being there. Turn it
+on, pick an interval between one hour and seven days, and choose whether world folders are included; the
+**Keep last** count above applies to these too. A background check runs every five minutes and starts a
+backup when one is due, skipping a server that already has a backup or restore running. Automatic copies
+are tagged as such in the list, and the card shows when the last one ran.
+
+## Plugin and mod updates
+
+The **Plugin & mod updates** card in a server's Plugins/Mods tab hashes every installed jar and looks it
+up on Modrinth by file hash, so it identifies what a jar actually is rather than guessing from the
+filename. Anything it recognises is compared against the newest release for that server's Minecraft
+version.
+
+Update one jar or all of them at once, or set a schedule (6 hours to 3 days) and optionally let it
+install updates on its own. Jars that are not on Modrinth are listed as unmatched and left alone.
+
+Updating replaces a file on disk, so it works best with the server stopped — Windows will not let a
+running server's jar be overwritten, and the manager reports that rather than failing quietly.
+
+## Updating the manager
+
+**Settings -> Updates** compares the installed copy against the GitHub repo it came from and installs new
+versions in place. It checks every six hours on its own; **Check now** does it immediately. When something
+is waiting you get the commit, its date, and the list of changes since your version.
+
+**Install update** downloads that commit as a zip and writes it over the manager's own files. It refuses
+an archive that does not contain `app.py` and `templates/index.html`, and it never writes to `servers/`,
+`backups/`, `.imports/`, `.venv/`, `.git/` or `update_state.json` — those paths are skipped even if they
+appear inside the archive. The files it is about to replace are zipped into `backups/_manager/` first, and
+**Roll back last update** restores the most recent of those. The last five are kept.
+
+The running process keeps the old code in memory, so restart the manager after updating. Updating is
+blocked while a Minecraft server is running unless you confirm.
+
+**Install automatically** is off by default. Turning it on lets the six-hour check apply updates without
+asking, which means code on your machine changes without you reading it first.
+
+The installed version is tracked in `update_state.json`; a copy cloned with git falls back to
+`git rev-parse HEAD` until the first update. Point `MC_MANAGER_REPO` at another `owner/name` to follow a
+fork.
+
 ## Importing a server folder
 
 Choose the folder in the Create tab. The browser uploads it in batches of about 24 MB, so folder size is not limited by the request size; a single file must stay below 240 MB. If an upload fails partway, the staged files are discarded and nothing is added to `servers/`.
@@ -121,12 +167,24 @@ static/js/map.js       Live map tab
 static/js/scene.js     WebGL backdrop and server core
 static/vendor/         Bundled Leaflet and three.js (no CDN, works offline)
 mock_rcon.py           Fake RCON server with simulated players for development
+update_state.json      Installed version and update preferences (created on first check)
 servers/               Local server files and metadata
 backups/               Server backup archives
 .imports/              Staging area used while a folder import is uploading
 setup.bat              Windows environment setup
 start.bat              Windows development launcher
 ```
+
+## Accounts and staff panel
+
+The panel now needs a sign-in. There is one **owner** and room for **two staff**, so at most three people can ever get in.
+
+- **First run:** open `http://127.0.0.1:5000` on the PC that runs the manager and create the owner account. Setup is refused from any other address, including through Tailscale, so nobody else can claim the panel first.
+- **Staff:** the owner opens **Staff panel** in the sidebar to add, reset or remove the two staff accounts and to read the activity log. Removing an account or resetting its password signs that person out immediately.
+- **Passwords** are never stored. Only salted scrypt hashes go into `staff.json`, and they cannot be turned back into the password, even by the owner. Passwords must be 8+ characters; five wrong attempts lock that username and address for five minutes.
+- **Staff can** run servers, edit files, use the map and install plugins. **Only the owner can** manage accounts and install or roll back manager updates.
+- **Forgot the owner password:** stop the manager, delete `staff.json`, start it again, and create the owner from the host PC. Servers and backups are untouched.
+- `staff.json`, `.secret_key` (signs the session cookie) and `audit.jsonl` are git-ignored and are never overwritten by manager updates.
 
 ## Notes
 
@@ -135,4 +193,8 @@ start.bat              Windows development launcher
 - The default Minecraft port is `25565`; each server should use a different port.
 - Modrinth, PaperMC, Purpur, and Mojang version APIs require an internet connection.
 - Restoring a backup replaces every file in the server folder, including `manager_meta.json`.
-- Do not expose the panel directly to the public internet without adding authentication and access controls.
+- The live map needs RCON enabled on the server; without it the map shows no players.
+- Setting `MC_MANAGER_TOKEN` additionally requires an `X-Admin-Token` header on the map, marker, RCON and manager-update routes. Normal use does not need it now that sign-in exists.
+- The manager listens on `127.0.0.1` only. To reach it from another PC use `tailscale serve --bg 5000`; do not use `tailscale funnel` or port-forward it to the public internet.
+- `start.bat` runs with `MC_MANAGER_DEV=1`, which turns on Flask's debug mode. Set it to `0` before exposing the panel to other devices.
+- Java is looked up on `PATH`, then `JAVA_HOME`, then the usual Windows install folders (Adoptium, Microsoft, Zulu, Corretto, Oracle).

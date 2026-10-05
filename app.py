@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import hashlib
+import io
 import os
 import secrets
 import json
@@ -13,14 +14,16 @@ import time
 import uuid
 import zipfile
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
+from urllib.parse import urlparse
 
 import requests
 from flask import (
     Flask, render_template, request, jsonify,
-    send_from_directory, abort
+    send_from_directory, abort, session, make_response
 )
 from werkzeug.exceptions import HTTPException
+from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 
 try:
@@ -40,6 +43,29 @@ BACKUPS_DIR = BASE_DIR / "backups"
 BACKUPS_DIR.mkdir(exist_ok=True)
 IMPORTS_DIR = BASE_DIR / ".imports"
 IMPORTS_DIR.mkdir(exist_ok=True)
+SECRET_FILE = BASE_DIR / ".secret_key"
+STAFF_FILE = BASE_DIR / "staff.json"
+AUDIT_FILE = BASE_DIR / "audit.jsonl"
+
+def load_secret_key() -> str:
+    """Persisted so sessions survive restarts and the dev reloader."""
+    try:
+        stored = SECRET_FILE.read_text(encoding="utf-8").strip()
+        if stored:
+            return stored
+    except OSError:
+        pass
+    generated = secrets.token_hex(32)
+    SECRET_FILE.write_text(generated, encoding="utf-8")
+    return generated
+
+app.secret_key = load_secret_key()
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Strict",
+    SESSION_COOKIE_NAME="mcm_session",
+    PERMANENT_SESSION_LIFETIME=timedelta(hours=12),
+)
 
 IMPORT_SESSION_TTL = 6 * 3600
 IMPORT_BATCH_BYTES = 24 * 1024 * 1024
@@ -56,6 +82,7 @@ HEADERS = {
 
 running_servers = {}
 console_logs = {}
+console_dropped = {}
 active_players = {}
 playit_processes = {}
 playit_logs = {}
@@ -88,7 +115,10 @@ def list_servers() -> list:
     out = []
     for d in SERVERS_DIR.iterdir():
         if d.is_dir() and (d / "manager_meta.json").exists():
-            m = load_meta(d.name)
+            try:
+                m = load_meta(d.name)
+            except (OSError, json.JSONDecodeError):
+                continue  # one corrupt manager_meta.json must not hide every other server
             m["id"] = d.name
             m["running"] = is_running(d.name)
             m["playit_running"] = is_playit_running(d.name)
@@ -98,9 +128,46 @@ def list_servers() -> list:
 def safe_path(server_id: str, rel: str):
     base = get_server_path(server_id).resolve()
     target = (base / rel).resolve()
-    if not str(target).startswith(str(base)):
+    # A bare startswith() lets "servers/a" reach its sibling "servers/a_1700".
+    if target != base and base not in target.parents:
         return None
     return target
+
+SERVER_ID_PATTERN = re.compile(r"[\w\-]{1,80}")
+DOWNLOAD_FOLDERS = ("plugins", "mods")
+TRUSTED_DOWNLOAD_HOSTS = {"cdn.modrinth.com"}
+
+def is_trusted_download(url) -> bool:
+    try:
+        parsed = urlparse(str(url))
+    except ValueError:
+        return False
+    return parsed.scheme == "https" and (parsed.hostname or "") in TRUSTED_DOWNLOAD_HOSTS
+
+def has_line_break(*values) -> bool:
+    return any("\n" in str(v) or "\r" in str(v) for v in values if v is not None)
+
+def find_java() -> str | None:
+    """PATH first, then JAVA_HOME, then the places Windows installers drop a JDK."""
+    found = shutil.which("java")
+    if found:
+        return found
+    exe = "java.exe" if os.name == "nt" else "java"
+    home = os.environ.get("JAVA_HOME")
+    if home and (Path(home) / "bin" / exe).is_file():
+        return str(Path(home) / "bin" / exe)
+    if os.name == "nt":
+        roots = [os.environ.get(var) for var in ("ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA")]
+        vendors = ("Eclipse Adoptium", "Java", "Microsoft", "Zulu", "Amazon Corretto", "BellSoft", "Programs/Eclipse Adoptium")
+        candidates = []
+        for root in filter(None, roots):
+            for vendor in vendors:
+                base = Path(root) / vendor
+                if base.is_dir():
+                    candidates.extend(base.glob(f"*/bin/{exe}"))
+        if candidates:
+            return str(sorted(candidates, reverse=True)[0])
+    return None
 
 def sanitize_relative_parts(relative: str) -> list:
     parts = [part for part in str(relative).replace("\\", "/").split("/") if part not in ("", ".")]
@@ -303,7 +370,14 @@ def run_restore(server_id: str, archive_name: str, safety: bool, keep: int):
     archive = backup_dir(server_id) / archive_name
     try:
         if safety:
-            run_backup(server_id, "Automatic copy taken before a restore", True, keep, automatic=True)
+            # keep=0 so pruning can never delete the very archive being restored, and a failed
+            # safety copy aborts before anything is wiped.
+            if run_backup(server_id, "Automatic copy taken before a restore", True, 0, automatic=True) is None:
+                set_job(server_id, "error", "Restore cancelled: could not save a safety copy of the current files", 0)
+                return False
+        if not archive.exists():
+            set_job(server_id, "error", "Restore failed: that backup no longer exists", 0)
+            return False
         set_job(server_id, "running", "Clearing current server files...", 30)
         for entry in root.iterdir():
             if entry.is_dir():
@@ -454,7 +528,7 @@ def download_vanilla(version: str):
     except Exception as e:
         return None, str(e)
 
-def modrinth_search(query, project_type="plugin", limit=24, game_version=None, loader=None, index="relevance"):
+def modrinth_search(query, project_type="plugin", limit=24, offset=0, game_version=None, loader=None, index="relevance"):
     try:
         facets = []
         if project_type == "plugin":
@@ -466,7 +540,7 @@ def modrinth_search(query, project_type="plugin", limit=24, game_version=None, l
                 facets.append([f"categories:{loader}"])
         if game_version:
             facets.append([f"versions:{game_version}"])
-        params = {"query": query or "", "limit": limit, "index": index}
+        params = {"query": query or "", "limit": limit, "offset": offset, "index": index}
         if facets:
             params["facets"] = json.dumps(facets)
         r = requests.get("https://api.modrinth.com/v2/search", params=params, headers=HEADERS, timeout=20)
@@ -563,6 +637,10 @@ def scan_plugin_updates(server_id: str) -> list:
     return results
 
 def apply_plugin_update(server_id: str, folder_name: str, filename: str, download_url: str, new_filename: str):
+    if folder_name not in DOWNLOAD_FOLDERS:
+        return False, "Unknown folder"
+    if not is_trusted_download(download_url):
+        return False, "Downloads are only allowed from cdn.modrinth.com"
     folder = get_server_path(server_id) / folder_name
     target = folder / secure_filename(filename)
     if not target.exists():
@@ -658,6 +736,7 @@ def write_properties(path: Path, updates: dict):
     path.write_text("\n".join(out) + "\n", encoding="utf-8")
 
 POS_PATTERN = re.compile(r"\[([-\d.]+)d?,\s*([-\d.]+)d?,\s*([-\d.]+)d?\]")
+ROT_PATTERN = re.compile(r"\[([-\d.]+)f?,\s*([-\d.]+)f?\]")
 NUMBER_PATTERN = re.compile(r"([-\d.]+)[fdb]?\s*$")
 
 def parse_entity_pos(reply: str):
@@ -665,6 +744,12 @@ def parse_entity_pos(reply: str):
     if not match:
         return None
     return [round(float(v), 2) for v in match.groups()]
+
+def parse_entity_rotation(reply: str):
+    match = ROT_PATTERN.search(reply or "")
+    if not match:
+        return None
+    return round(float(match.group(1)) % 360, 1)
 
 def parse_entity_number(reply: str):
     match = NUMBER_PATTERN.search((reply or "").strip())
@@ -695,7 +780,8 @@ def rcon_player_snapshot(server_id: str) -> dict:
                     "y": position[1],
                     "z": position[2],
                     "health": parse_entity_number(rcon.command(f"data get entity {name} Health")),
-                    "dimension": (rcon.command(f"data get entity {name} Dimension") or "").split()[-1].strip('"')
+                    "dimension": (rcon.command(f"data get entity {name} Dimension") or "").split()[-1].strip('"'),
+                    "yaw": parse_entity_rotation(rcon.command(f"data get entity {name} Rotation"))
                 })
         return {"ok": True, "players": players}
     except (OSError, RconError, struct.error, ValueError) as exc:
@@ -727,19 +813,166 @@ def require_admin():
         return jsonify({"ok": False, "error": "Admin token required"}), 401
     return None
 
+UPDATE_REPO = os.environ.get("MC_MANAGER_REPO", "bliper2/mc-server-manager-v2")
+UPDATE_BRANCH = os.environ.get("MC_MANAGER_BRANCH", "main")
+GITHUB_API = os.environ.get("MC_MANAGER_UPDATE_API", "https://api.github.com").rstrip("/")
+UPDATE_STATE_FILE = BASE_DIR / "update_state.json"
+UPDATE_SNAPSHOTS = BACKUPS_DIR / "_manager"
+UPDATE_CHECK_INTERVAL = 6 * 3600
+# Anything holding the user's own data, or the environment the app runs in.
+UPDATE_PROTECTED = {"servers", "backups", ".imports", ".venv", ".git", "__pycache__", "update_state.json", "staff.json", ".secret_key", "audit.jsonl"}
+UPDATE_REQUIRED = ("app.py", "templates/index.html")
+
+def load_update_state() -> dict:
+    defaults = {"installed": None, "auto_check": True, "auto_install": False, "last_check": None, "latest": None}
+    if not UPDATE_STATE_FILE.exists():
+        return defaults
+    try:
+        return {**defaults, **json.loads(UPDATE_STATE_FILE.read_text(encoding="utf-8"))}
+    except (OSError, json.JSONDecodeError):
+        return defaults
+
+def save_update_state(state: dict):
+    UPDATE_STATE_FILE.write_text(json.dumps(state, indent=2), encoding="utf-8")
+
+def installed_commit(state: dict):
+    """Falls back to git so a cloned checkout knows where it stands before the first update."""
+    if state.get("installed"):
+        return state["installed"]
+    try:
+        result = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(BASE_DIR),
+                                capture_output=True, text=True, timeout=5)
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return None
+
+def github_json(path: str):
+    response = requests.get(f"{GITHUB_API}{path}", headers={**HEADERS, "Accept": "application/vnd.github+json"}, timeout=20)
+    if response.status_code == 403 and "rate limit" in response.text.lower():
+        raise RuntimeError("GitHub rate limit reached, try again later")
+    response.raise_for_status()
+    return response.json()
+
+def fetch_update_status(state: dict) -> dict:
+    latest = github_json(f"/repos/{UPDATE_REPO}/commits/{UPDATE_BRANCH}")
+    current = installed_commit(state)
+    info = {
+        "sha": latest["sha"],
+        "short": latest["sha"][:7],
+        "message": latest["commit"]["message"].splitlines()[0],
+        "date": latest["commit"]["committer"]["date"],
+        "behind": [],
+        "update_available": bool(current) and current != latest["sha"]
+    }
+    if current and current != latest["sha"]:
+        try:
+            compare = github_json(f"/repos/{UPDATE_REPO}/compare/{current}...{UPDATE_BRANCH}")
+            info["behind"] = [c["commit"]["message"].splitlines()[0] for c in compare.get("commits", [])][-20:]
+            info["count"] = compare.get("ahead_by", len(info["behind"]))
+        except (requests.RequestException, RuntimeError, KeyError):
+            info["count"] = None
+    elif not current:
+        info["update_available"] = True
+    return info
+
+def is_protected(relative: str) -> bool:
+    return relative.split("/", 1)[0] in UPDATE_PROTECTED
+
+def snapshot_manager_files(paths) -> Path:
+    UPDATE_SNAPSHOTS.mkdir(parents=True, exist_ok=True)
+    archive = UPDATE_SNAPSHOTS / f"manager_{datetime.now().strftime('%Y%m%d-%H%M%S')}.zip"
+    with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as bundle:
+        for relative in paths:
+            source = BASE_DIR / relative
+            if source.is_file():
+                bundle.write(source, relative)
+    for stale in sorted(UPDATE_SNAPSHOTS.glob("manager_*.zip"), key=lambda f: f.stat().st_mtime, reverse=True)[5:]:
+        stale.unlink(missing_ok=True)
+    return archive
+
+def apply_manager_update() -> dict:
+    state = load_update_state()
+    latest = github_json(f"/repos/{UPDATE_REPO}/commits/{UPDATE_BRANCH}")
+    sha = latest["sha"]
+    response = requests.get(f"{GITHUB_API}/repos/{UPDATE_REPO}/zipball/{UPDATE_BRANCH}", headers=HEADERS, timeout=180)
+    response.raise_for_status()
+
+    with zipfile.ZipFile(io.BytesIO(response.content)) as bundle:
+        members = [m for m in bundle.infolist() if not m.is_dir()]
+        if not members:
+            raise RuntimeError("Downloaded archive was empty")
+        root = members[0].filename.split("/", 1)[0] + "/"
+        incoming = {}
+        for member in members:
+            if not member.filename.startswith(root):
+                continue
+            relative = member.filename[len(root):]
+            parts = sanitize_relative_parts(relative)
+            if not parts or is_protected(relative):
+                continue
+            incoming["/".join(parts)] = member
+        missing = [name for name in UPDATE_REQUIRED if name not in incoming]
+        if missing:
+            raise RuntimeError(f"Archive is missing {', '.join(missing)}; refusing to install it")
+
+        snapshot = snapshot_manager_files(list(incoming))
+        written = []
+        for relative, member in sorted(incoming.items()):
+            destination = BASE_DIR.joinpath(*relative.split("/"))
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            payload = bundle.read(member)
+            if destination.exists() and destination.read_bytes() == payload:
+                continue
+            destination.write_bytes(payload)
+            written.append(relative)
+
+    state.update({"installed": sha, "last_check": datetime.now().isoformat(timespec="seconds")})
+    if isinstance(state.get("latest"), dict) and state["latest"].get("sha") == sha:
+        state["latest"].update({"update_available": False, "behind": [], "count": 0})
+    save_update_state(state)
+    return {"sha": sha, "short": sha[:7], "files": written, "snapshot": snapshot.name}
+
+def restore_manager_snapshot() -> dict:
+    archives = sorted(UPDATE_SNAPSHOTS.glob("manager_*.zip"), key=lambda f: f.stat().st_mtime, reverse=True)
+    if not archives:
+        raise RuntimeError("No snapshot to roll back to")
+    restored = []
+    with zipfile.ZipFile(archives[0]) as bundle:
+        for member in bundle.infolist():
+            if member.is_dir() or is_protected(member.filename):
+                continue
+            parts = sanitize_relative_parts(member.filename)
+            if not parts:
+                continue
+            destination = BASE_DIR.joinpath(*parts)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(bundle.read(member))
+            restored.append("/".join(parts))
+    state = load_update_state()
+    state["installed"] = None
+    save_update_state(state)
+    return {"snapshot": archives[0].name, "files": restored}
+
 def read_console(server_id, process):
     console_logs.setdefault(server_id, [])
     try:
         for line in iter(process.stdout.readline, b""):
             text = line.decode("utf-8", errors="replace").rstrip()
-            console_logs[server_id].append(text)
+            lines = console_logs[server_id]
+            lines.append(text)
             update_active_players(server_id, text)
-            if len(console_logs[server_id]) > 3000:
-                console_logs[server_id] = console_logs[server_id][-2000:]
+            if len(lines) > 3000:
+                # Count what was trimmed so the client's absolute offset stays valid.
+                console_dropped[server_id] = console_dropped.get(server_id, 0) + 1000
+                console_logs[server_id] = lines[1000:]
     except Exception:
         pass
     finally:
-        running_servers.pop(server_id, None)
+        # A restart registers a new process before this thread unwinds; only clear our own entry.
+        if running_servers.get(server_id) is process:
+            running_servers.pop(server_id, None)
 
 def update_active_players(server_id, text):
     players = active_players.setdefault(server_id, [])
@@ -767,16 +1000,20 @@ def start_server(server_id, ram_mb=2048):
     if not jar_path.exists():
         return False, f"JAR missing: {jar_name}"
     (path / "eula.txt").write_text("eula=true\n", encoding="utf-8")
-    cmd = ["java", f"-Xms{max(512, ram_mb // 2)}M", f"-Xmx{ram_mb}M", "-jar", str(jar_path), "nogui"]
+    java = find_java()
+    if not java:
+        return False, "Java not found. Install Java 21 (Java 17 for 1.18-1.20.4), tick \"Add to PATH\", then restart the manager."
+    cmd = [java, f"-Xms{max(512, ram_mb // 2)}M", f"-Xmx{ram_mb}M", "-jar", str(jar_path), "nogui"]
     try:
         process = subprocess.Popen(cmd, cwd=str(path), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.PIPE)
         running_servers[server_id] = process
         active_players[server_id] = []
+        console_dropped[server_id] = 0
         console_logs[server_id] = [f"[{datetime.now().strftime('%H:%M:%S')}] Starting {jar_name}..."]
         threading.Thread(target=read_console, args=(server_id, process), daemon=True).start()
         return True, "Server started"
     except FileNotFoundError:
-        return False, "Java not found in PATH. Install Java 17/21/25."
+        return False, "Java could not be launched. Install Java 21 and restart the manager."
     except Exception as e:
         return False, str(e)
 
@@ -884,9 +1121,322 @@ def handle_unexpected_error(error):
     app.logger.exception("Unhandled error on %s", request.path)
     return jsonify({"ok": False, "error": f"{type(error).__name__}: {error}"}), 500
 
+# --- Accounts: one owner plus at most MAX_STAFF staff, passwords stored only as salted scrypt hashes ---
+
+MAX_STAFF = 2
+USERNAME_PATTERN = re.compile(r"[A-Za-z0-9_.\-]{3,24}")
+PASSWORD_MIN, PASSWORD_MAX = 8, 128
+LOGIN_MAX_FAILS = 5
+LOGIN_LOCK_SECONDS = 300
+PUBLIC_API = {"/api/auth/login", "/api/auth/setup", "/api/auth/status"}
+account_lock = threading.Lock()
+login_attempts = {}
+# Checked against when a username does not exist, so a miss costs the same time as a wrong password.
+DUMMY_HASH = generate_password_hash("not-a-real-password")
+
+def load_accounts() -> list:
+    try:
+        data = json.loads(STAFF_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    return data if isinstance(data, list) else []
+
+def save_accounts(accounts: list):
+    temp = STAFF_FILE.with_suffix(".tmp")
+    temp.write_text(json.dumps(accounts, indent=2), encoding="utf-8")
+    os.replace(temp, STAFF_FILE)
+
+def find_account(username: str, accounts=None):
+    wanted = (username or "").strip().lower()
+    return next((a for a in (accounts if accounts is not None else load_accounts()) if a["username"].lower() == wanted), None)
+
+def public_account(account: dict) -> dict:
+    return {key: account.get(key) for key in ("username", "role", "created", "last_login")}
+
+def needs_setup() -> bool:
+    return not STAFF_FILE.exists()
+
+def is_local_request() -> bool:
+    """First-run setup is limited to the host PC. A Tailscale or proxy hop adds X-Forwarded-For."""
+    return request.remote_addr in ("127.0.0.1", "::1") and not request.headers.get("X-Forwarded-For")
+
+def client_ip() -> str:
+    forwarded = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+    return forwarded or request.remote_addr or "unknown"
+
+def current_account():
+    if "account" in request.environ:
+        return request.environ["account"]
+    account = None
+    name = session.get("user")
+    if name:
+        account = find_account(name)
+        if not account or session.get("sv") != account.get("sv"):
+            session.clear()
+            account = None
+    request.environ["account"] = account
+    return account
+
+def start_session(account: dict):
+    session.clear()
+    session.permanent = True
+    session["user"] = account["username"]
+    session["sv"] = account["sv"]
+    request.environ["account"] = account
+
+def validate_credentials(username: str, password: str):
+    if not USERNAME_PATTERN.fullmatch(username or ""):
+        return "Username must be 3-24 characters: letters, numbers, dot, dash or underscore"
+    if not isinstance(password, str) or not PASSWORD_MIN <= len(password) <= PASSWORD_MAX:
+        return f"Password must be {PASSWORD_MIN}-{PASSWORD_MAX} characters"
+    if password.strip().lower() == username.strip().lower():
+        return "Password cannot be the same as the username"
+    return None
+
+def new_account(username: str, password: str, role: str) -> dict:
+    return {
+        "username": username,
+        "role": role,
+        "password_hash": generate_password_hash(password),
+        "created": datetime.now().isoformat(timespec="seconds"),
+        "last_login": None,
+        "sv": 1
+    }
+
+def audit(user: str, action: str, **detail):
+    entry = {"at": datetime.now().isoformat(timespec="seconds"), "user": user, "action": action, **detail}
+    try:
+        with account_lock:
+            if AUDIT_FILE.exists() and AUDIT_FILE.stat().st_size > 1_000_000:
+                tail = AUDIT_FILE.read_text(encoding="utf-8", errors="replace").splitlines()[-500:]
+                AUDIT_FILE.write_text("\n".join(tail) + "\n", encoding="utf-8")
+            with open(AUDIT_FILE, "a", encoding="utf-8") as handle:
+                handle.write(json.dumps(entry) + "\n")
+    except OSError:
+        pass
+
+def read_audit(limit: int = 80) -> list:
+    try:
+        lines = AUDIT_FILE.read_text(encoding="utf-8", errors="replace").splitlines()[-limit:]
+    except OSError:
+        return []
+    entries = []
+    for line in reversed(lines):
+        try:
+            entries.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return entries
+
+def lock_remaining(key: str) -> int:
+    entry = login_attempts.get(key)
+    if entry and entry["until"] > time.time():
+        return int(entry["until"] - time.time()) + 1
+    return 0
+
+def record_login_failure(key: str):
+    now = time.time()
+    entry = login_attempts.get(key)
+    if not entry or now - entry["first"] > LOGIN_LOCK_SECONDS * 2:
+        entry = {"count": 0, "first": now, "until": 0}
+    entry["count"] += 1
+    if entry["count"] >= LOGIN_MAX_FAILS:
+        entry["until"] = now + LOGIN_LOCK_SECONDS
+        entry["count"] = 0
+        entry["first"] = now
+    login_attempts[key] = entry
+
+def require_owner():
+    account = current_account()
+    if not account or account["role"] != "owner":
+        return jsonify({"ok": False, "error": "Only the owner can do that"}), 403
+    return None
+
+@app.before_request
+def guard_request():
+    sid = (request.view_args or {}).get("sid")
+    if sid is not None and not SERVER_ID_PATTERN.fullmatch(sid):
+        abort(404)  # "." and ".." would otherwise resolve to the servers folder or the app itself
+    if request.path.startswith("/api/") and request.path not in PUBLIC_API and not current_account():
+        return jsonify({"ok": False, "error": "Sign in required"}), 401
+    return None
+
+@app.after_request
+def record_staff_actions(response):
+    if request.method == "POST" and request.path.startswith("/api/") and request.path not in PUBLIC_API \
+            and request.path != "/api/import/upload" and request.path != "/api/auth/logout":
+        account = request.environ.get("account")
+        if account:
+            audit(account["username"], f"POST {request.path}", status=response.status_code)
+    return response
+
+@app.route("/api/auth/status")
+def api_auth_status():
+    account = current_account()
+    return jsonify({
+        "ok": True,
+        "setup_required": needs_setup(),
+        "setup_allowed": needs_setup() and is_local_request(),
+        "user": public_account(account) if account else None,
+        "max_staff": MAX_STAFF
+    })
+
+@app.route("/api/auth/setup", methods=["POST"])
+def api_auth_setup():
+    if not needs_setup():
+        return jsonify({"ok": False, "error": "An owner account already exists"}), 409
+    if not is_local_request():
+        return jsonify({"ok": False, "error": "Create the owner account from the PC that runs the manager"}), 403
+    data = request.get_json(silent=True) or {}
+    username = str(data.get("username") or "").strip()
+    password = data.get("password")
+    problem = validate_credentials(username, password)
+    if problem:
+        return jsonify({"ok": False, "error": problem}), 400
+    with account_lock:
+        if not needs_setup():
+            return jsonify({"ok": False, "error": "An owner account already exists"}), 409
+        owner = new_account(username, password, "owner")
+        owner["last_login"] = datetime.now().isoformat(timespec="seconds")
+        save_accounts([owner])
+    start_session(owner)
+    audit(username, "owner account created")
+    return jsonify({"ok": True, "user": public_account(owner)})
+
+@app.route("/api/auth/login", methods=["POST"])
+def api_auth_login():
+    data = request.get_json(silent=True) or {}
+    username = str(data.get("username") or "").strip()
+    password = data.get("password") if isinstance(data.get("password"), str) else ""
+    key = f"{client_ip()}|{username.lower()}"
+    wait = lock_remaining(key)
+    if wait:
+        return jsonify({"ok": False, "error": f"Too many failed attempts. Try again in {wait} seconds."}), 429
+    with account_lock:
+        accounts = load_accounts()
+        account = find_account(username, accounts)
+        valid = check_password_hash(account["password_hash"] if account else DUMMY_HASH, password) and account is not None
+        if valid:
+            login_attempts.pop(key, None)
+            account["last_login"] = datetime.now().isoformat(timespec="seconds")
+            save_accounts(accounts)
+    if not valid:
+        record_login_failure(key)
+        audit(username[:24] or "?", "failed sign-in", ip=client_ip())
+        return jsonify({"ok": False, "error": "Wrong username or password"}), 401
+    start_session(account)
+    audit(account["username"], "signed in", ip=client_ip())
+    return jsonify({"ok": True, "user": public_account(account)})
+
+@app.route("/api/auth/logout", methods=["POST"])
+def api_auth_logout():
+    account = current_account()
+    if account:
+        audit(account["username"], "signed out")
+    session.clear()
+    return jsonify({"ok": True})
+
+@app.route("/api/auth/password", methods=["POST"])
+def api_auth_password():
+    account = current_account()
+    data = request.get_json(silent=True) or {}
+    current, new = data.get("current"), data.get("new")
+    if not isinstance(current, str) or not check_password_hash(account["password_hash"], current):
+        return jsonify({"ok": False, "error": "Current password is wrong"}), 400
+    problem = validate_credentials(account["username"], new)
+    if problem:
+        return jsonify({"ok": False, "error": problem}), 400
+    with account_lock:
+        accounts = load_accounts()
+        stored = find_account(account["username"], accounts)
+        stored["password_hash"] = generate_password_hash(new)
+        stored["sv"] = int(stored.get("sv", 1)) + 1
+        save_accounts(accounts)
+    start_session(stored)
+    audit(account["username"], "changed own password")
+    return jsonify({"ok": True})
+
+@app.route("/api/staff")
+def api_staff_list():
+    denied = require_owner()
+    if denied:
+        return denied
+    accounts = [public_account(a) for a in load_accounts()]
+    return jsonify({
+        "ok": True,
+        "accounts": accounts,
+        "staff_count": sum(1 for a in accounts if a["role"] == "staff"),
+        "max_staff": MAX_STAFF,
+        "audit": read_audit()
+    })
+
+@app.route("/api/staff", methods=["POST"])
+def api_staff_create():
+    denied = require_owner()
+    if denied:
+        return denied
+    data = request.get_json(silent=True) or {}
+    username = str(data.get("username") or "").strip()
+    password = data.get("password")
+    problem = validate_credentials(username, password)
+    if problem:
+        return jsonify({"ok": False, "error": problem}), 400
+    with account_lock:
+        accounts = load_accounts()
+        if sum(1 for a in accounts if a["role"] == "staff") >= MAX_STAFF:
+            return jsonify({"ok": False, "error": f"Only {MAX_STAFF} staff accounts are allowed. Remove one first."}), 409
+        if find_account(username, accounts):
+            return jsonify({"ok": False, "error": "That username is already taken"}), 409
+        accounts.append(new_account(username, password, "staff"))
+        save_accounts(accounts)
+    audit(current_account()["username"], "created staff account", target=username)
+    return jsonify({"ok": True})
+
+@app.route("/api/staff/<username>/password", methods=["POST"])
+def api_staff_reset(username):
+    denied = require_owner()
+    if denied:
+        return denied
+    password = (request.get_json(silent=True) or {}).get("password")
+    problem = validate_credentials(username, password)
+    if problem:
+        return jsonify({"ok": False, "error": problem}), 400
+    with account_lock:
+        accounts = load_accounts()
+        target = find_account(username, accounts)
+        if not target or target["role"] != "staff":
+            return jsonify({"ok": False, "error": "Staff account not found"}), 404
+        target["password_hash"] = generate_password_hash(password)
+        target["sv"] = int(target.get("sv", 1)) + 1  # signs that person out everywhere
+        save_accounts(accounts)
+    audit(current_account()["username"], "reset staff password", target=target["username"])
+    return jsonify({"ok": True})
+
+@app.route("/api/staff/<username>/delete", methods=["POST"])
+def api_staff_delete(username):
+    denied = require_owner()
+    if denied:
+        return denied
+    with account_lock:
+        accounts = load_accounts()
+        target = find_account(username, accounts)
+        if not target or target["role"] != "staff":
+            return jsonify({"ok": False, "error": "Staff account not found"}), 404
+        save_accounts([a for a in accounts if a is not target])
+    audit(current_account()["username"], "removed staff account", target=target["username"])
+    return jsonify({"ok": True})
+
 @app.route("/")
 def index():
-    return render_template("index.html")
+    account = current_account()
+    if account:
+        page = render_template("index.html", user=account["username"], role=account["role"])
+    else:
+        state = "open" if needs_setup() and is_local_request() else ("remote" if needs_setup() else "login")
+        page = render_template("login.html", state=state)
+    response = make_response(page)
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 @app.route("/api/dev-version")
 def api_dev_version():
@@ -942,7 +1492,10 @@ def api_create():
     safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in name)[:40] or "server"
     server_id = f"{safe}_{int(time.time())}"
     path = get_server_path(server_id)
-    path.mkdir(parents=True)
+    try:
+        path.mkdir(parents=True)
+    except FileExistsError:
+        return jsonify({"ok": False, "error": "A server with that name was just created. Wait a second and try again."}), 409
     jar_bytes, jar_name = None, "server.jar"
     if stype == "paper":
         jar_bytes, jar_name = download_paper(version)
@@ -960,10 +1513,16 @@ def api_create():
     for d in ("plugins", "mods", "config", "world"):
         (path / d).mkdir(exist_ok=True)
     motd = str(data.get("motd") or name).replace("\n", " ").replace("\r", " ")
+    gamemode = str(data.get("gamemode") or "survival")
+    difficulty = str(data.get("difficulty") or "normal")
+    if gamemode not in ("survival", "creative", "adventure", "spectator"):
+        gamemode = "survival"
+    if difficulty not in ("peaceful", "easy", "normal", "hard"):
+        difficulty = "normal"
     props = "\n".join([
         f"server-port={port}",
-        f"gamemode={data.get('gamemode') or 'survival'}",
-        f"difficulty={data.get('difficulty') or 'normal'}",
+        f"gamemode={gamemode}",
+        f"difficulty={difficulty}",
         f"max-players={max_players}",
         f"motd={motd}",
         f"online-mode={'true' if data.get('online_mode', True) else 'false'}",
@@ -1078,8 +1637,8 @@ def api_import_cancel():
 
 @app.route("/api/server/<sid>/start", methods=["POST"])
 def api_start(sid):
-    data = request.json or {}
-    ram = int(data.get("ram") or load_meta(sid).get("ram", 2048))
+    data = request.get_json(silent=True) or {}
+    ram = clamp_ram(data.get("ram") or load_meta(sid).get("ram", 2048))
     ok, msg = start_server(sid, ram)
     return jsonify({"ok": ok, "message": msg})
 
@@ -1092,7 +1651,7 @@ def api_stop(sid):
 def api_restart(sid):
     if is_running(sid):
         stop_server(sid)
-    ok, msg = start_server(sid, load_meta(sid).get("ram", 2048))
+    ok, msg = start_server(sid, clamp_ram(load_meta(sid).get("ram", 2048)))
     return jsonify({"ok": ok, "message": msg})
 
 @app.route("/api/server/<sid>/reload-components", methods=["POST"])
@@ -1113,18 +1672,25 @@ def api_command(sid):
 @app.route("/api/server/<sid>/console")
 def api_console(sid):
     lines = console_logs.get(sid, [])
+    dropped = console_dropped.get(sid, 0)
+    total = dropped + len(lines)
     since = request.args.get("since", 0, type=int)
-    return jsonify({"lines": lines[since:], "total": len(lines), "running": is_running(sid)})
+    # An offset ahead of the log means the server restarted and the log began again.
+    reset = since > total
+    if reset:
+        since = 0
+    return jsonify({"lines": lines[max(0, since - dropped):], "total": total, "running": is_running(sid), "reset": reset})
 
 @app.route("/api/server/<sid>/delete", methods=["POST"])
 def api_delete(sid):
+    path = get_server_path(sid)
+    if not path.is_dir():
+        return jsonify({"ok": False, "error": "Server not found"}), 404
     if is_running(sid):
         stop_server(sid)
     if is_playit_running(sid):
         stop_playit(sid)
-    path = get_server_path(sid)
-    if path.exists():
-        shutil.rmtree(path, ignore_errors=True)
+    shutil.rmtree(path, ignore_errors=True)
     shutil.rmtree(BACKUPS_DIR / sid, ignore_errors=True)
     backup_jobs.pop(sid, None)
     return jsonify({"ok": True})
@@ -1254,6 +1820,9 @@ def api_player_action(sid):
     reason = (data.get("reason") or "Banned by admin").strip()
     if not player and action not in ("whitelist_on", "whitelist_off"):
         return jsonify({"ok": False, "error": "player required"}), 400
+    if has_line_break(player, reason, data.get("value"), data.get("item"), data.get("target")):
+        # send_command writes one line per command; a newline would smuggle in a second command.
+        return jsonify({"ok": False, "error": "Line breaks are not allowed in player actions"}), 400
     try:
         int(data.get("count") or 1)
         float(data.get("x", 0)); float(data.get("y", 64)); float(data.get("z", 0))
@@ -1408,8 +1977,12 @@ def api_props_set(sid):
     data = request.json or {}
     props = data.get("props") or {}
     path = get_server_path(sid) / "server.properties"
+    if not isinstance(props, dict):
+        return jsonify({"ok": False, "error": "Properties must be an object"}), 400
     lines = ["# Edited by MC Server Manager", ""]
     for k, v in props.items():
+        if has_line_break(k, v) or "=" in str(k):
+            return jsonify({"ok": False, "error": f"Invalid property \"{k}\""}), 400
         lines.append(f"{k}={v}")
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     if "server-port" in props:
@@ -1444,6 +2017,8 @@ def api_modrinth_search():
     return jsonify(modrinth_search(
         request.args.get("q", ""),
         request.args.get("type", "plugin"),
+        limit=request.args.get("limit", 24, type=int),
+        offset=request.args.get("offset", 0, type=int),
         game_version=request.args.get("version"),
         loader=request.args.get("loader")
     ))
@@ -1453,7 +2028,8 @@ def api_modrinth_featured():
     return jsonify(modrinth_search(
         "",
         request.args.get("type", "plugin"),
-        limit=100,
+        limit=30,
+        offset=request.args.get("offset", 0, type=int),
         game_version=request.args.get("version"),
         loader=request.args.get("loader"),
         index="downloads"
@@ -1471,21 +2047,30 @@ def api_install(sid):
     target = data.get("target") or "plugins"
     if not url:
         return jsonify({"ok": False, "error": "No URL"}), 400
+    if target not in DOWNLOAD_FOLDERS:
+        return jsonify({"ok": False, "error": "Target must be plugins or mods"}), 400
+    if not is_trusted_download(url):
+        return jsonify({"ok": False, "error": "Downloads are only allowed from cdn.modrinth.com"}), 400
     path = get_server_path(sid)
     if not path.exists():
         return jsonify({"ok": False, "error": "Server missing"}), 404
+    safe_name = secure_filename(filename)
+    if not safe_name.lower().endswith(".jar"):
+        return jsonify({"ok": False, "error": "Only .jar files can be installed"}), 400
     folder = path / target
     folder.mkdir(exist_ok=True)
     content = download_url_bytes(url)
     if not content:
         return jsonify({"ok": False, "error": "Download failed"}), 500
-    dest = folder / secure_filename(filename)
+    dest = folder / safe_name
     dest.write_bytes(content)
     return jsonify({"ok": True, "path": str(dest.relative_to(path))})
 
 @app.route("/api/server/<sid>/files")
 def api_files(sid):
     folder = request.args.get("folder", "plugins")
+    if folder not in DOWNLOAD_FOLDERS:
+        return jsonify([])
     path = get_server_path(sid) / folder
     if not path.exists():
         return jsonify([])
@@ -1637,8 +2222,98 @@ def api_updates_apply(sid):
         (applied if ok else failed).append({"file": filename, "detail": result})
     return jsonify({"ok": not failed, "applied": applied, "failed": failed})
 
+@app.route("/api/manager/update")
+def api_manager_update():
+    state = load_update_state()
+    return jsonify({
+        "ok": True,
+        "installed": installed_commit(state),
+        "auto_check": state["auto_check"],
+        "auto_install": state["auto_install"],
+        "last_check": state["last_check"],
+        "latest": state["latest"],
+        "repo": UPDATE_REPO,
+        "branch": UPDATE_BRANCH
+    })
+
+@app.route("/api/manager/update/settings", methods=["POST"])
+def api_manager_update_settings():
+    denied = require_owner() or require_admin()
+    if denied:
+        return denied
+    data = request.json or {}
+    state = load_update_state()
+    state["auto_check"] = bool(data.get("auto_check"))
+    state["auto_install"] = bool(data.get("auto_install"))
+    save_update_state(state)
+    return jsonify({"ok": True, "auto_check": state["auto_check"], "auto_install": state["auto_install"]})
+
+@app.route("/api/manager/update/check", methods=["POST"])
+def api_manager_update_check():
+    state = load_update_state()
+    try:
+        latest = fetch_update_status(state)
+    except (requests.RequestException, RuntimeError, KeyError) as exc:
+        return jsonify({"ok": False, "error": f"Could not reach GitHub: {exc}"}), 502
+    state["latest"] = latest
+    state["last_check"] = datetime.now().isoformat(timespec="seconds")
+    save_update_state(state)
+    return jsonify({"ok": True, "latest": latest, "installed": installed_commit(state), "last_check": state["last_check"]})
+
+@app.route("/api/manager/update/apply", methods=["POST"])
+def api_manager_update_apply():
+    denied = require_owner() or require_admin()
+    if denied:
+        return denied
+    if any(is_running(folder.name) for folder in SERVERS_DIR.iterdir() if folder.is_dir()):
+        if not (request.json or {}).get("force"):
+            return jsonify({"ok": False, "error": "A server is running. Stop it first, or send force to update anyway."}), 409
+    try:
+        result = apply_manager_update()
+    except (requests.RequestException, RuntimeError, zipfile.BadZipFile, OSError) as exc:
+        return jsonify({"ok": False, "error": f"Update failed: {exc}"}), 500
+    return jsonify({"ok": True, **result, "restart_required": True})
+
+@app.route("/api/manager/update/rollback", methods=["POST"])
+def api_manager_update_rollback():
+    denied = require_owner() or require_admin()
+    if denied:
+        return denied
+    try:
+        result = restore_manager_snapshot()
+    except (RuntimeError, zipfile.BadZipFile, OSError) as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    return jsonify({"ok": True, **result, "restart_required": True})
+
+def check_manager_update():
+    state = load_update_state()
+    if not state.get("auto_check"):
+        return
+    last = state.get("last_check")
+    if last:
+        try:
+            if (datetime.now() - datetime.fromisoformat(last)).total_seconds() < UPDATE_CHECK_INTERVAL:
+                return
+        except ValueError:
+            pass
+    try:
+        latest = fetch_update_status(state)
+    except (requests.RequestException, RuntimeError, KeyError) as exc:
+        print("Manager update check failed:", exc)
+        return
+    state["latest"] = latest
+    state["last_check"] = datetime.now().isoformat(timespec="seconds")
+    save_update_state(state)
+    if latest.get("update_available") and state.get("auto_install"):
+        try:
+            result = apply_manager_update()
+            print(f"Manager updated to {result['short']}; restart to load it")
+        except (requests.RequestException, RuntimeError, zipfile.BadZipFile, OSError) as exc:
+            print("Manager auto-update failed:", exc)
+
 def run_scheduled_maintenance():
     now = time.time()
+    check_manager_update()
     for folder in SERVERS_DIR.iterdir():
         if not folder.is_dir() or not (folder / "manager_meta.json").exists():
             continue

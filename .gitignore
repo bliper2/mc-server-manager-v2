@@ -11,3 +11,11 @@ servers/*
 .idea/
 .DS_Store
 Thumbs.db
+
+# Panel accounts, session key and audit trail (never commit these)
+staff.json
+.secret_key
+audit.jsonl
+.imports/
+backups/
+update_state.json

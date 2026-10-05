@@ -4,16 +4,33 @@ let mapPollTimer = null;
 let mapFrame = null;
 let playerMarkers = new Map();
 let structureLayer = null;
+let trailLayer = null;
 let placingMarker = false;
 let selectedPlayer = null;
 let playerFilter = "";
 let lastPlayers = [];
+let activeDimension = "overworld";
+let followingPlayer = false;
+let structureKey = "";
 
 const MAP_POLL_MS = 1000;
 const LERP = 0.18;
+const TRAIL_LENGTH = 14;
+
+const PLAYER_COLORS = ["#b9f227", "#8ec8ff", "#f4bb52", "#ff766d", "#c084fc", "#34d399", "#f472b6", "#38bdf8"];
 
 function toLatLng(x, z) {
   return [-z, x];
+}
+
+function playerColor(name) {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+  return PLAYER_COLORS[hash % PLAYER_COLORS.length];
+}
+
+function normalizeDimension(dim) {
+  return (dim || "overworld").replace("minecraft:", "");
 }
 
 function initMap() {
@@ -49,6 +66,7 @@ function initMap() {
   new Grid({ tileSize: 128 }).addTo(mapInstance);
 
   structureLayer = L.layerGroup().addTo(mapInstance);
+  trailLayer = L.layerGroup().addTo(mapInstance);
 
   mapInstance.on("click", event => {
     if (!placingMarker) return;
@@ -61,67 +79,104 @@ function initMap() {
   return mapInstance;
 }
 
-function playerIcon(player) {
+function playerIconHtml(player) {
   const max = 20;
   const ratio = Math.max(0, Math.min(1, (player.health ?? max) / max));
   const state = ratio > 0.6 ? "ok" : ratio > 0.3 ? "hurt" : "critical";
-  return L.divIcon({
-    className: "player-pin-wrap",
-    html: `<div class="player-pin ${selectedPlayer === player.name ? "selected" : ""}">
+  const color = playerColor(player.name);
+  const facing = typeof player.yaw === "number" ? (player.yaw + 180) % 360 : null;
+  return `<div class="player-pin ${selectedPlayer === player.name ? "selected" : ""}" style="--pc:${color}">
+        ${facing !== null ? `<span class="player-pin-facing" style="transform:rotate(${Math.round(facing)}deg)"></span>` : ""}
         <span class="player-pin-dot"></span>
         <span class="player-pin-name">${escapeHtml(player.name)}</span>
-        <span class="player-pin-health ${state}"><i style="width:${ratio * 100}%"></i></span>
-      </div>`,
-    iconSize: null
-  });
+        <span class="player-pin-health ${state}"><i style="width:${Math.round(ratio * 100)}%"></i></span>
+      </div>`;
+}
+
+function playerIcon(html) {
+  return L.divIcon({ className: "player-pin-wrap", html, iconSize: null });
 }
 
 function renderPlayers(players) {
   const seen = new Set();
   players.forEach(player => {
     seen.add(player.name);
+    const dim = normalizeDimension(player.dimension);
     const target = toLatLng(player.x, player.z);
     let entry = playerMarkers.get(player.name);
+    const inView = dim === activeDimension;
     if (!entry) {
-      const marker = L.marker(target, { icon: playerIcon(player), keyboard: true });
-      marker.addTo(mapInstance);
+      const iconHtml = playerIconHtml(player);
+      const marker = L.marker(target, { icon: playerIcon(iconHtml), keyboard: true });
       marker.on("click", () => openPlayerDrawer(player.name));
-      entry = { marker, current: target.slice(), target };
+      const trail = L.polyline([], { color: playerColor(player.name), weight: 2, opacity: 0.35, dashArray: "1 6" });
+      entry = { marker, current: target.slice(), target, trail, points: [], dim, inView: false, iconHtml };
       playerMarkers.set(player.name, entry);
     } else {
       entry.target = target;
-      entry.marker.setIcon(playerIcon(player));
+      const iconHtml = playerIconHtml(player);
+      if (iconHtml !== entry.iconHtml) {
+        entry.iconHtml = iconHtml;
+        entry.marker.setIcon(playerIcon(iconHtml));
+      }
     }
+    if (entry.dim !== dim) { entry.points = []; entry.trail.setLatLngs([]); }
+    entry.dim = dim;
     entry.data = player;
+    if (inView && !entry.inView) { entry.marker.addTo(mapInstance); entry.trail.addTo(trailLayer); entry.current = target.slice(); entry.marker.setLatLng(entry.current); }
+    if (!inView && entry.inView) { mapInstance.removeLayer(entry.marker); trailLayer.removeLayer(entry.trail); }
+    entry.inView = inView;
+    if (inView) {
+      entry.points.push(target);
+      if (entry.points.length > TRAIL_LENGTH) entry.points.shift();
+      entry.trail.setLatLngs(entry.points);
+    }
   });
   [...playerMarkers.keys()].forEach(name => {
     if (seen.has(name)) return;
-    mapInstance.removeLayer(playerMarkers.get(name).marker);
+    const entry = playerMarkers.get(name);
+    if (entry.inView) { mapInstance.removeLayer(entry.marker); trailLayer.removeLayer(entry.trail); }
     playerMarkers.delete(name);
   });
 }
 
 function animate() {
   mapFrame = requestAnimationFrame(animate);
+  let followTarget = null;
   playerMarkers.forEach(entry => {
+    if (!entry.inView) return;
     const [lat, lng] = entry.current;
     const [tLat, tLng] = entry.target;
-    if (Math.abs(tLat - lat) < 0.01 && Math.abs(tLng - lng) < 0.01) return;
-    entry.current = [lat + (tLat - lat) * LERP, lng + (tLng - lng) * LERP];
-    entry.marker.setLatLng(entry.current);
+    if (Math.abs(tLat - lat) >= 0.01 || Math.abs(tLng - lng) >= 0.01) {
+      entry.current = [lat + (tLat - lat) * LERP, lng + (tLng - lng) * LERP];
+      entry.marker.setLatLng(entry.current);
+    }
+    if (followingPlayer && entry.data && entry.data.name === selectedPlayer) followTarget = entry.current;
   });
+  if (followTarget && mapInstance) {
+    const center = mapInstance.getCenter();
+    if (Math.hypot(center.lat - followTarget[0], center.lng - followTarget[1]) > 0.5) {
+      mapInstance.panTo(followTarget, { animate: true, duration: 0.4, easeLinearity: 0.5 });
+    }
+  }
 }
 
+const STRUCTURE_GLYPH = { base: "⌂", farm: "☘", portal: "◈", shop: "♦", spawn: "★" };
+
 function renderStructures(markers) {
+  const key = JSON.stringify(markers);
+  if (key === structureKey) return;
+  structureKey = key;
   structureLayer.clearLayers();
   markers.forEach(marker => {
     L.marker(toLatLng(marker.x, marker.z), {
       icon: L.divIcon({
         className: "structure-pin-wrap",
-        html: `<div class="structure-pin"><strong>${escapeHtml(marker.label)}</strong>
+        html: `<div class="structure-pin" data-kind="${escapeHtml(marker.kind)}">
+          <strong><span class="structure-glyph">${STRUCTURE_GLYPH[marker.kind] || "■"}</span>${escapeHtml(marker.label)}</strong>
           <small>${escapeHtml(marker.kind)}${marker.owner ? ` · ${escapeHtml(marker.owner)}` : ""}</small>
           <small class="structure-coords">${marker.x}, ${marker.z}</small>
-          <button class="mini-btn danger" onclick="removeStructure('${marker.id}')">Remove</button></div>`,
+          <button class="mini-btn danger" onclick="removeStructure(${escapeHtml(JSON.stringify(String(marker.id)))})">Remove</button></div>`,
         iconSize: null
       })
     }).addTo(structureLayer);
@@ -136,10 +191,40 @@ function renderOnlineList(players) {
   count.textContent = `${players.length} online`;
   count.className = `badge ${players.length ? "online" : "offline"}`;
   list.innerHTML = filtered.length
-    ? filtered.map(p => `<button class="active-player" onclick="openPlayerDrawer('${escapeHtml(p.name)}')">
-        <span class="status-dot online"></span><strong>${escapeHtml(p.name)}</strong>
-        <span>${Math.round(p.x)}, ${Math.round(p.z)}</span></button>`).join("")
+    ? filtered.map(p => {
+        const dim = normalizeDimension(p.dimension);
+        return `<button class="active-player" onclick="openPlayerDrawer(${escapeHtml(JSON.stringify(String(p.name)))})">
+        <span class="status-dot online" style="background:${playerColor(p.name)};box-shadow:0 0 8px ${playerColor(p.name)}"></span><strong>${escapeHtml(p.name)}</strong>
+        <span>${Math.round(p.x)}, ${Math.round(p.z)}${dim !== "overworld" ? ` · ${dim.replace("the_", "")}` : ""}</span></button>`;
+      }).join("")
     : `<div class="empty">${players.length ? "No match" : "Nobody online"}</div>`;
+}
+
+function centerMap() {
+  const inView = [...playerMarkers.values()].filter(e => e.inView);
+  if (!inView.length || !mapInstance) return;
+  const bounds = L.latLngBounds(inView.map(e => e.target));
+  mapInstance.flyToBounds(bounds.pad(0.35), { animate: true, duration: 0.5, maxZoom: 1 });
+}
+
+function setDimension(dim) {
+  activeDimension = dim;
+  document.querySelectorAll(".dim-tab").forEach(tab => tab.classList.toggle("active", tab.dataset.dim === dim));
+  renderPlayers(lastPlayers);
+}
+
+function toggleFollow() {
+  followingPlayer = !followingPlayer;
+  const btn = document.getElementById("drawer-follow");
+  if (btn) btn.classList.toggle("active", followingPlayer);
+  if (followingPlayer) {
+    const player = lastPlayers.find(p => p.name === selectedPlayer);
+    if (player) {
+      const dim = normalizeDimension(player.dimension);
+      if (dim !== activeDimension) setDimension(dim);
+      mapInstance.setZoom(1);
+    }
+  }
 }
 
 function logAction(message, kind = "info") {
@@ -191,20 +276,26 @@ function stopMapPolling() {
 
 async function loadMapServers() {
   const select = document.getElementById("map-server");
-  const servers = await (await fetch("/api/servers")).json();
+  let servers = [];
+  try {
+    servers = await (await fetch("/api/servers")).json();
+  } catch (error) {
+    logAction(`Could not load servers: ${error.message}`, "error");
+  }
   select.innerHTML = servers.length
-    ? servers.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join("")
+    ? servers.map(s => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.name)}</option>`).join("")
     : '<option value="">No servers yet</option>';
   if (!mapServerId || !servers.some(s => s.id === mapServerId)) {
     mapServerId = servers[0]?.id || null;
   }
   select.value = mapServerId || "";
-  await loadRcon();
+  try { await loadRcon(); } catch (error) { logAction(error.message, "error"); }
 }
 
 async function loadRcon() {
   if (!mapServerId) return;
   const data = await requestJson(`/api/server/${mapServerId}/rcon`);
+  if (!data.settings) return;
   const panel = document.getElementById("map-rcon-setup");
   document.getElementById("rcon-port").value = data.settings.port;
   document.getElementById("rcon-enabled").checked = data.settings.enabled;
@@ -226,25 +317,39 @@ async function saveRcon() {
   loadRcon();
 }
 
+function setPlacing(active) {
+  placingMarker = active;
+  document.getElementById("map-canvas")?.classList.toggle("placing", active);
+}
+
 function beginPlacement() {
   if (!document.getElementById("structure-label").value.trim()) {
     return showToast("Name the structure first", "warning");
   }
-  placingMarker = true;
-  showToast("Click the map to drop the marker", "success");
+  setPlacing(true);
+  showToast("Click the map to drop the marker. Esc cancels.", "success");
 }
 
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape" && placingMarker) setPlacing(false);
+});
+
 async function placeStructure(x, z) {
-  placingMarker = false;
+  setPlacing(false);
   const payload = {
     label: document.getElementById("structure-label").value.trim(),
     owner: document.getElementById("structure-owner").value.trim(),
     kind: document.getElementById("structure-kind").value,
     x, z
   };
-  const data = await requestJson(`/api/server/${mapServerId}/map/markers`, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
-  });
+  let data;
+  try {
+    data = await requestJson(`/api/server/${mapServerId}/map/markers`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
+    });
+  } catch (error) {
+    return showToast(error.message, "error");
+  }
   if (!data.ok) return showToast(data.error || "Could not save marker", "error");
   document.getElementById("structure-label").value = "";
   renderStructures(data.markers);
@@ -263,14 +368,22 @@ async function removeStructure(id) {
 
 function openPlayerDrawer(name) {
   selectedPlayer = name;
+  followingPlayer = false;
   document.getElementById("player-drawer").classList.add("open");
   document.getElementById("drawer-name").textContent = name;
+  document.getElementById("drawer-follow")?.classList.remove("active");
+  const player = lastPlayers.find(p => p.name === name);
+  if (player) {
+    const dim = normalizeDimension(player.dimension);
+    if (dim !== activeDimension) setDimension(dim);
+  }
   refreshDrawerStats();
   renderPlayers(lastPlayers);
 }
 
 function closePlayerDrawer() {
   selectedPlayer = null;
+  followingPlayer = false;
   document.getElementById("player-drawer").classList.remove("open");
   renderPlayers(lastPlayers);
 }
@@ -338,8 +451,11 @@ window.mcMap = {
 
 document.getElementById("map-server").addEventListener("change", async event => {
   mapServerId = event.target.value || null;
-  playerMarkers.forEach(entry => mapInstance.removeLayer(entry.marker));
+  playerMarkers.forEach(entry => { if (entry.inView) { mapInstance.removeLayer(entry.marker); trailLayer.removeLayer(entry.trail); } });
   playerMarkers.clear();
+  structureKey = "";
+  closePlayerDrawer();
+  setDimension("overworld");
   await loadRcon();
   pollMap();
 });
@@ -347,6 +463,11 @@ document.getElementById("map-server").addEventListener("change", async event => 
 document.getElementById("map-search").addEventListener("input", event => {
   playerFilter = event.target.value.trim().toLowerCase();
   renderOnlineList(lastPlayers);
+});
+
+document.getElementById("map-dim-tabs").addEventListener("click", event => {
+  const tab = event.target.closest(".dim-tab");
+  if (tab) setDimension(tab.dataset.dim);
 });
 
 document.getElementById("map-log-toggle").addEventListener("click", () => {
