@@ -7,11 +7,11 @@
   <meta name="generator" content="MC Server Manager by Mrkraps aka orgeco" />
   <title>MC Server Manager v2</title>
   <link rel="stylesheet" href="/static/vendor/leaflet.css" />
-  <link rel="stylesheet" href="/static/css/style.css" />
-  <link rel="stylesheet" href="/static/css/v3.css" />
+  <link rel="stylesheet" href="/static/css/themes.css?v={{ version }}" />
+  <link rel="stylesheet" href="/static/css/app.css?v={{ version }}" />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fira+Code:wght@400;500;600&family=Manrope:wght@400;500;600;700;800&family=Orbitron:wght@500;600;700;800&family=Press+Start+2P&family=Rajdhani:wght@400;500;600;700&family=Space+Mono:wght@400;700&family=Space+Grotesk:wght@400;500;600;700&family=VT323&display=swap" rel="stylesheet" />
 </head>
-<body data-role="{{ role }}" data-user="{{ user }}">
+<body data-role="{{ role }}" data-user="{{ user }}" data-perms="{{ perms }}" data-version="{{ version }}">
   <!-- MC-SERVER-MANAGER-OWNER: Mrkraps aka orgeco -->
   <span class="owner-watermark" data-owner="Mrkraps aka orgeco" aria-hidden="true">Mrkraps aka orgeco</span>
   <canvas id="backdrop" aria-hidden="true" hidden></canvas>
@@ -25,7 +25,7 @@
       <div class="sidebar-nav" role="navigation" aria-label="Main">
         <span class="nav-heading">Workspace</span>
         <button class="nav-btn active" data-tab="servers"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3.5" width="14" height="5" rx="1.5"/><rect x="3" y="11.5" width="14" height="5" rx="1.5"/><path d="M6 6h.01M6 14h.01"/></svg><span>Servers</span></button>
-        <button class="nav-btn" data-tab="create"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10" cy="10" r="7"/><path d="M10 6.5v7M6.5 10h7"/></svg><span>Create</span></button>
+        <button class="nav-btn" data-tab="create" data-perm="manage"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="10" cy="10" r="7"/><path d="M10 6.5v7M6.5 10h7"/></svg><span>Create</span></button>
         <button class="nav-btn" data-tab="map"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 17s5.5-4.6 5.5-9A5.5 5.5 0 0 0 4.5 8c0 4.4 5.5 9 5.5 9z"/><circle cx="10" cy="8" r="2"/></svg><span>Live Map</span></button>
         <button class="nav-btn" data-tab="browser"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 2.5l6.5 3.5v8L10 17.5 3.5 14V6L10 2.5z"/><path d="M3.5 6L10 9.5 16.5 6M10 9.5v8"/></svg><span>Plugins &amp; Mods</span></button>
         <span class="nav-heading">System</span>
@@ -43,10 +43,17 @@
     </aside>
 
     <main class="main">
+      <div id="dev-banner" class="notice warn" data-owner-only hidden>
+        <strong>Debug mode is on.</strong> This is meant for developing the panel. Before other people use it through Tailscale, start it with <code>start-shared.bat</code>.
+      </div>
+      <div id="update-banner" class="notice info" hidden>
+        <span id="update-banner-text">An update was installed. Restart to use it.</span>
+        <button class="btn small primary" data-owner-only onclick="restartManager()">Restart now</button>
+      </div>
       <section id="tab-servers" class="tab active">
         <header class="page-header compact-header">
           <div><span class="eyebrow">Workspace overview<span class="caret" aria-hidden="true">_</span></span><h1>Your Servers</h1></div>
-          <button class="btn primary" onclick="switchTab('create')"><span>+</span> New Server</button>
+          <button class="btn primary" data-perm="manage" onclick="switchTab('create')"><span>+</span> New Server</button>
         </header>
 
         <div id="server-summary" class="summary-strip"></div>
@@ -347,6 +354,48 @@
             </form>
           </section>
         </div>
+        <div class="settings-layout manager-update-layout">
+          <section class="settings-card">
+            <div class="settings-card-heading"><div><span class="eyebrow">Your account</span><h2>Two-factor sign-in</h2></div><span id="twofa-badge" class="badge offline">Off</span></div>
+            <p class="hint">Asks for a 6-digit code from an authenticator app (Google Authenticator, Microsoft Authenticator, Authy, 1Password) after your password. Strongly recommended for the owner.</p>
+            <div id="twofa-off">
+              <button class="btn primary small" onclick="beginTwoFactor()">Set up two-factor</button>
+            </div>
+            <div id="twofa-setup" hidden>
+              <p class="hint">1. In your authenticator app choose <strong>Add account</strong> then <strong>Enter a setup key</strong>.<br />2. Paste this key, then type the 6-digit code it shows.</p>
+              <div class="secret-box"><code id="twofa-secret"></code><button class="btn small" onclick="copyText(document.getElementById('twofa-secret').textContent)">Copy</button></div>
+              <div class="inline-form"><input type="text" id="twofa-code" inputmode="numeric" maxlength="7" placeholder="123456" autocomplete="one-time-code" /><button class="btn primary small" onclick="enableTwoFactor()">Turn on</button><button class="btn ghost small" onclick="cancelTwoFactor()">Cancel</button></div>
+            </div>
+            <div id="twofa-codes" hidden>
+              <p class="hint"><strong>Save these recovery codes now.</strong> Each works once if you lose your phone. They will not be shown again.</p>
+              <pre id="twofa-codes-list" class="recovery-codes"></pre>
+              <button class="btn small" onclick="copyText(document.getElementById('twofa-codes-list').textContent)">Copy codes</button>
+            </div>
+            <div id="twofa-on" hidden>
+              <p class="hint" id="twofa-recovery-left"></p>
+              <div class="inline-form"><input type="password" id="twofa-disable-password" placeholder="Password" autocomplete="current-password" /><input type="text" id="twofa-disable-code" placeholder="Code or recovery code" autocomplete="one-time-code" /><button class="btn danger small" onclick="disableTwoFactor()">Turn off</button></div>
+            </div>
+          </section>
+          <section class="settings-card">
+            <div class="settings-card-heading"><div><span class="eyebrow">System</span><h2>Java</h2></div><span id="java-badge" class="badge offline">Checking</span></div>
+            <p class="hint" id="java-summary">Looking for Java...</p>
+            <div class="backup-controls">
+              <button class="btn primary small" id="btn-java-install" data-owner-only onclick="installJava()" hidden>Install Java 21</button>
+              <button class="btn small" onclick="loadJava()">Check again</button>
+            </div>
+            <pre id="java-log" class="playit-log" hidden></pre>
+            <p class="hint">Minecraft 1.20.5+ needs Java 21, 1.18 to 1.20.4 needs Java 17. The manager picks the right one per server when several are installed.</p>
+          </section>
+        </div>
+        <div class="settings-layout manager-update-layout" data-owner-only>
+          <section class="settings-card span-2">
+            <div class="settings-card-heading"><div><span class="eyebrow">Owner only</span><h2>Discord notifications</h2></div><span id="notify-badge" class="badge offline">Not set</span></div>
+            <p class="hint">Posts to a Discord channel when servers start, stop or crash, backups finish, updates install and more. Create a webhook in Discord: <em>Channel settings, Integrations, Webhooks</em>. The URL is stored on this PC only and is never shown again.</p>
+            <div class="inline-form"><input type="password" id="notify-webhook" placeholder="Paste webhook URL (https://discord.com/api/webhooks/...)" autocomplete="off" /><button class="btn primary small" onclick="saveNotifications()">Save</button><button class="btn small" onclick="testNotification()">Send test</button><button class="btn danger small" onclick="removeWebhook()">Remove</button></div>
+            <p class="hint" id="notify-hint"></p>
+            <div id="notify-events" class="event-grid"></div>
+          </section>
+        </div>
         <div class="settings-layout manager-update-layout" data-owner-only>
           <section class="settings-card span-2">
             <div class="settings-card-heading"><div><span class="eyebrow">Manager</span><h2>Updates</h2></div><span id="update-badge" class="badge offline">Unknown</span></div>
@@ -362,14 +411,19 @@
               <div><strong>Install automatically</strong><small>Applies updates without asking. Leave off if you would rather read the changes first.</small></div>
               <label class="setting-switch"><input id="update-auto-install" type="checkbox" onchange="saveUpdateSettings()" /><span></span></label>
             </div>
+            <div class="setting-row">
+              <div><strong>Update channel</strong><small>Releases are tested versions. Latest code follows every change on GitHub. Automatic installs only ever use releases.</small></div>
+              <select id="update-channel" onchange="saveUpdateSettings()"><option value="releases">Releases (recommended)</option><option value="main">Latest code</option></select>
+            </div>
             <div id="update-detail" class="update-detail" hidden></div>
             <div class="backup-controls">
               <button class="btn primary small" id="btn-update-apply" onclick="applyManagerUpdate()" hidden>Install update</button>
               <button class="btn small" onclick="rollbackManagerUpdate()">Roll back last update</button>
+              <button class="btn small" id="btn-restart-manager" onclick="restartManager()">Restart manager</button>
             </div>
-            <p class="hint">Your servers, backups and settings are never touched by an update. The files being
-              replaced are saved to <code>backups/_manager/</code> first, and the manager has to be restarted
-              afterwards for the new code to load.</p>
+            <p class="hint">Your servers, backups, accounts and settings are never touched by an update. The files being
+              replaced are saved to <code>backups/_manager/</code> first. After installing, the manager restarts itself and this page
+              reloads on its own; servers that were running are stopped safely and started again.</p>
           </section>
         </div>
 
@@ -392,6 +446,7 @@
             <form class="stack-form" id="staff-form" autocomplete="off" onsubmit="createStaff(event)">
               <div class="form-group"><label for="staff-username">Username</label><input type="text" id="staff-username" placeholder="3-24 letters, numbers, . - _" maxlength="24" autocomplete="off" required /></div>
               <div class="form-group"><label for="staff-password">Password</label><input type="password" id="staff-password" placeholder="At least 8 characters" minlength="8" autocomplete="new-password" required /></div>
+              <div class="form-group"><label>What can they do?</label><div id="staff-new-permissions" class="perm-grid"></div><small class="field-hint">Everyone can look at everything. These control what they can change. You can edit them later.</small></div>
               <button class="btn primary" type="submit" id="btn-staff-add">Create staff account</button>
               <p class="hint">Share the username and password in person or a private chat. They can change it under Settings.</p>
             </form>
@@ -408,11 +463,11 @@
           <button class="btn ghost" onclick="switchTab('servers')"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3.5L5 8l5 4.5"/></svg> Back</button>
           <h1 id="detail-title">Server</h1>
           <div class="header-actions">
-            <button class="btn success" onclick="startSelected(this)"><svg viewBox="0 0 16 16" fill="currentColor" stroke="none"><path d="M4 2.5v11l9-5.5-9-5.5z"/></svg> Start</button>
-            <button class="btn danger" onclick="stopSelected(this)"><svg viewBox="0 0 16 16" fill="currentColor" stroke="none"><rect x="3.5" y="3.5" width="9" height="9" rx="1.5"/></svg> Stop</button>
-            <button class="btn warning" onclick="restartSelected(this)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 8a5.5 5.5 0 0 1 9.6-3.7M13.5 8a5.5 5.5 0 0 1-9.6 3.7"/><path d="M12.6 2.5v2.5h-2.5M3.4 13.5V11h2.5"/></svg> Restart</button>
+            <button class="btn success" data-perm="control" onclick="startSelected(this)"><svg viewBox="0 0 16 16" fill="currentColor" stroke="none"><path d="M4 2.5v11l9-5.5-9-5.5z"/></svg> Start</button>
+            <button class="btn danger" data-perm="control" onclick="stopSelected(this)"><svg viewBox="0 0 16 16" fill="currentColor" stroke="none"><rect x="3.5" y="3.5" width="9" height="9" rx="1.5"/></svg> Stop</button>
+            <button class="btn warning" data-perm="control" onclick="restartSelected(this)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 8a5.5 5.5 0 0 1 9.6-3.7M13.5 8a5.5 5.5 0 0 1-9.6 3.7"/><path d="M12.6 2.5v2.5h-2.5M3.4 13.5V11h2.5"/></svg> Restart</button>
             <button class="btn accent" onclick="togglePlayit()">Playit.gg</button>
-            <button class="btn ghost" onclick="deleteSelected(this)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5h10M6.5 4.5V3a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v1.5M4.5 4.5l.6 8.2a1 1 0 0 0 1 .9h3.8a1 1 0 0 0 1-.9l.6-8.2"/></svg> Delete</button>
+            <button class="btn ghost" data-perm="manage" onclick="deleteSelected(this)"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5h10M6.5 4.5V3a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1v1.5M4.5 4.5l.6 8.2a1 1 0 0 0 1 .9h3.8a1 1 0 0 0 1-.9l.6-8.2"/></svg> Delete</button>
           </div>
         </header>
 
@@ -425,6 +480,8 @@
           <button class="dtab" data-dtab="backups">Backups</button>
           <button class="dtab" data-dtab="anticheat">Anti-Cheat</button>
           <button class="dtab" data-dtab="plugins">Plugins/Mods</button>
+          <button class="dtab" data-dtab="automation">Automation</button>
+          <button class="dtab" data-dtab="activity">Activity</button>
         </div>
 
         <div id="dtab-commands" class="dtab-panel">
@@ -442,9 +499,21 @@
                 <span class="console-title"><span>Live Console</span><span id="console-live" class="live-indicator"><i></i>Live</span></span>
                 <span class="console-tools"><span id="detail-status" class="badge offline">Offline</span><button class="console-tool" onclick="clearConsole()" title="Clear console output">Clear</button><button id="console-refresh-toggle" class="console-tool" onclick="toggleConsoleRefresh()" title="Pause live updates">Pause</button><button class="console-tool" onclick="downloadConsoleLog()" title="Download console log">Save log</button></span>
               </div>
-              <div id="console-output" class="console"></div>
+              <div class="console-filter">
+                <input type="search" id="console-search" placeholder="Filter lines..." autocomplete="off" aria-label="Filter console lines" />
+                <div class="filter-group" id="console-levels" role="group" aria-label="Level">
+                  <button type="button" class="filter-pill active" data-level="all">All</button>
+                  <button type="button" class="filter-pill" data-level="warn">Warnings</button>
+                  <button type="button" class="filter-pill" data-level="error">Errors</button>
+                </div>
+              </div>
+              <div class="console-wrap">
+                <div id="console-output" class="console"></div>
+                <button id="console-jump" class="btn small primary console-jump" onclick="jumpConsoleToEnd()" hidden>Jump to latest</button>
+              </div>
               <div class="console-input">
-                <input type="text" id="cmd-input" placeholder="Command + Enter..." autocomplete="off" />
+                <div id="cmd-suggest" class="cmd-suggest" role="listbox" hidden></div>
+                <input type="text" id="cmd-input" placeholder="Command + Enter...  (Tab completes, ↑ ↓ history)" autocomplete="off" aria-autocomplete="list" />
                 <button class="btn small primary" onclick="sendCmd()">Send</button>
               </div>
             </div>
@@ -453,6 +522,12 @@
                 <h3>Info</h3>
                 <canvas id="server-core" class="server-core" aria-hidden="true"></canvas>
                 <div class="detail-logo-row"><div id="detail-logo" class="server-avatar avatar-lime">MC</div><div><strong>Server logo</strong><small>Recommended: 256 × 256 px</small><label class="btn small logo-upload-label">Import logo<input id="logo-upload" type="file" accept="image/png,image/jpeg,image/webp" hidden onchange="importServerLogo()" /></label></div></div>
+                <div class="live-stats" id="live-stats" hidden>
+                  <div class="stat"><span>CPU</span><strong id="stat-cpu">-</strong></div>
+                  <div class="stat"><span>Memory</span><strong id="stat-ram">-</strong></div>
+                  <div class="stat"><span>Uptime</span><strong id="stat-uptime">-</strong></div>
+                  <svg id="stat-spark" class="spark" viewBox="0 0 120 32" preserveAspectRatio="none" aria-hidden="true"><polyline id="spark-cpu" points="" /><polyline id="spark-ram" points="" /></svg>
+                </div>
                 <div id="detail-info"></div>
               </div>
               <div class="info-card playit-card">
@@ -576,6 +651,43 @@
           </div>
         </div>
 
+        <div id="dtab-automation" class="dtab-panel">
+          <div class="panel-card">
+            <div class="wiki-heading"><div><span class="eyebrow">Reliability</span><h2>Crash recovery</h2></div><span id="auto-restart-badge" class="badge offline">Off</span></div>
+            <p class="hint">If the server process dies on its own, start it again. Stops from the panel or in game never count as crashes. Gives up (and tells Discord) after too many crashes in a row.</p>
+            <div class="backup-controls">
+              <label class="backup-option"><input type="checkbox" id="ar-enabled" data-perm="control" /><span>Restart after a crash</span></label>
+              <label class="backup-option"><span>Give up after</span><input type="number" id="ar-tries" min="1" max="10" value="3" /><span>crashes in</span><input type="number" id="ar-window" min="1" max="120" value="10" /><span>minutes</span></label>
+            </div>
+          </div>
+          <div class="panel-card">
+            <div class="wiki-heading"><div><span class="eyebrow">Maintenance</span><h2>Scheduled restart</h2></div><span id="sched-badge" class="badge offline">Off</span></div>
+            <p class="hint">Restarts the server every day at the time you choose. Players get warnings in chat first, and the world is saved before the restart. Uses this PC's clock.</p>
+            <div class="backup-controls">
+              <label class="backup-option"><input type="checkbox" id="sr-enabled" /><span>Restart daily at</span></label>
+              <input type="time" id="sr-time" value="04:00" />
+              <label class="backup-option"><span>Warn</span><input type="number" id="sr-warn" min="1" max="60" value="5" /><span>minutes before</span></label>
+            </div>
+          </div>
+          <div class="panel-card">
+            <div class="wiki-heading"><div><span class="eyebrow">Chat</span><h2>Announcements</h2></div><span id="ann-badge" class="badge offline">Off</span></div>
+            <p class="hint">Broadcasts these messages in turn while players are online. One message per line, up to 10.</p>
+            <div class="backup-controls">
+              <label class="backup-option"><input type="checkbox" id="an-enabled" /><span>Send announcements every</span></label>
+              <label class="backup-option"><input type="number" id="an-interval" min="5" max="1440" value="30" /><span>minutes</span></label>
+            </div>
+            <textarea id="an-messages" class="code-editor" rows="5" maxlength="2200" placeholder="Join our Discord: discord.gg/example&#10;Be kind to other players"></textarea>
+            <div class="backup-controls" style="margin-top:.8rem"><button class="btn primary" data-perm="control" onclick="saveAutomation(this)">Save automation</button></div>
+          </div>
+        </div>
+
+        <div id="dtab-activity" class="dtab-panel">
+          <div class="panel-card">
+            <div class="wiki-heading"><div><span class="eyebrow">Audit</span><h2>Who did what on this server</h2></div><button class="btn small" onclick="loadActivity()">Refresh</button></div>
+            <div id="server-activity" class="audit-list"><div class="empty">No activity yet</div></div>
+          </div>
+        </div>
+
         <div id="dtab-plugins" class="dtab-panel">
           <div class="panel-card two-col">
             <div>
@@ -611,6 +723,26 @@
     </main>
   </div>
   
+  <dialog id="ask-dialog" class="modal" aria-labelledby="ask-title">
+    <form method="dialog">
+      <h3 id="ask-title">Are you sure?</h3>
+      <p class="hint" id="ask-message"></p>
+      <input type="text" id="ask-input" hidden />
+      <div class="modal-actions">
+        <button class="btn ghost" value="cancel" formnovalidate>Cancel</button>
+        <button class="btn primary" id="ask-ok" value="ok">OK</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="boot-overlay" class="boot-overlay" hidden role="status" aria-live="polite">
+    <div class="boot-card">
+      <span class="boot-spinner" aria-hidden="true"></span>
+      <strong id="boot-title">Restarting the manager</strong>
+      <p id="boot-text">This page reloads by itself when it is back.</p>
+    </div>
+  </div>
+
   <dialog id="password-dialog" class="modal" aria-labelledby="password-dialog-title">
     <form method="dialog">
       <h3 id="password-dialog-title">Reset password</h3>
@@ -626,8 +758,19 @@
   <div id="toast-container" class="toast-container" aria-live="polite"></div>
   
   <script src="/static/vendor/leaflet.js"></script>
-  <script src="/static/js/app.js"></script>
-  <script src="/static/js/map.js"></script>
+  <script src="/static/js/core.js?v={{ version }}"></script>
+  <script src="/static/js/servers.js?v={{ version }}"></script>
+  <script src="/static/js/detail.js?v={{ version }}"></script>
+  <script src="/static/js/console.js?v={{ version }}"></script>
+  <script src="/static/js/files.js?v={{ version }}"></script>
+  <script src="/static/js/backups.js?v={{ version }}"></script>
+  <script src="/static/js/plugins.js?v={{ version }}"></script>
+  <script src="/static/js/settings.js?v={{ version }}"></script>
+  <script src="/static/js/staff.js?v={{ version }}"></script>
+  <script src="/static/js/automation.js?v={{ version }}"></script>
+  <script src="/static/js/boot.js?v={{ version }}"></script>
+  <script src="/static/js/main.js?v={{ version }}"></script>
+  <script src="/static/js/map.js?v={{ version }}"></script>
   <script type="module" src="/static/js/scene.js"></script>
 </body>
 </html>

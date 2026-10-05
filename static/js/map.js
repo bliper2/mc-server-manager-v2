@@ -299,7 +299,7 @@ async function loadRcon() {
   const panel = document.getElementById("map-rcon-setup");
   document.getElementById("rcon-port").value = data.settings.port;
   document.getElementById("rcon-enabled").checked = data.settings.enabled;
-  panel.hidden = data.settings.enabled && Boolean(data.settings.password);
+  panel.hidden = data.settings.enabled && Boolean(data.settings.has_password);
 }
 
 async function saveRcon() {

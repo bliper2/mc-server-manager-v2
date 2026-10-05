@@ -114,25 +114,49 @@ running server's jar be overwritten, and the manager reports that rather than fa
 
 ## Updating the manager
 
-**Settings -> Updates** compares the installed copy against the GitHub repo it came from and installs new
-versions in place. It checks every six hours on its own; **Check now** does it immediately. When something
-is waiting you get the commit, its date, and the list of changes since your version.
+**Settings > Updates** compares the installed version with GitHub. It follows one of two channels:
 
-**Install update** downloads that commit as a zip and writes it over the manager's own files. It refuses
-an archive that does not contain `app.py` and `templates/index.html`, and it never writes to `servers/`,
-`backups/`, `.imports/`, `.venv/`, `.git/` or `update_state.json` — those paths are skipped even if they
-appear inside the archive. The files it is about to replace are zipped into `backups/_manager/` first, and
-**Roll back last update** restores the most recent of those. The last five are kept.
+- **Releases** (default, recommended): the newest published GitHub release.
+- **Latest code**: the newest commit on `main`.
 
-The running process keeps the old code in memory, so restart the manager after updating. Updating is
-blocked while a Minecraft server is running unless you confirm.
+**Check now** lists the new commits, the release notes and every file that would change. **Install update**
+downloads that version as a zip and writes it over the manager's own files, then **restarts the manager by
+itself and reloads this page**; there is no need to close the terminal or reopen the site. Servers that were
+running are stopped properly (the world is saved) and started again once the manager is back. You are asked
+before that happens.
 
-**Install automatically** is off by default. Turning it on lets the six-hour check apply updates without
-asking, which means code on your machine changes without you reading it first.
+- It refuses an archive that does not contain `app.py`, `templates/index.html` and `manager/__init__.py`.
+- It never writes to `servers/`, `backups/`, `.imports/`, `.venv/`, `.git/`, `staff.json`, `.secret_key`,
+  `audit.jsonl`, `manager_settings.json` or `update_state.json`.
+- The files it replaces are zipped into `backups/_manager/` first; **Roll back last update** restores the
+  newest of those (the last five are kept) and restarts too.
+- **Install automatically** is off by default and only ever installs published releases, never a raw commit.
+  After an automatic install the manager restarts itself the next time no server is running.
+- Updating needs the owner account.
 
-The installed version is tracked in `update_state.json`; a copy cloned with git falls back to
-`git rev-parse HEAD` until the first update. Point `MC_MANAGER_REPO` at another `owner/name` to follow a
-fork.
+The self-restart works when the manager was started with `start.bat`, `start-shared.bat` or `python app.py`.
+Every open browser tab notices the restart (or, in development mode, a changed source file) and reloads itself.
+
+Point `MC_MANAGER_REPO` at another `owner/name` to follow a fork. A copy cloned with git knows its version from
+`git rev-parse HEAD` until the first update.
+
+## Notifications (Discord)
+
+Settings > Discord notifications (owner only). Paste a channel webhook (Channel settings > Integrations >
+Webhooks) and choose what to hear about: server start, stop, crash and automatic restart, backups, manager
+updates, lockouts and failed sign-ins, staff changes, and optionally players joining or leaving. The URL is stored
+in `manager_settings.json`, is never sent back to the browser, and is not overwritten by updates.
+
+## Server automation
+
+Open a server and choose **Automation**:
+
+- **Crash recovery:** restarts the server if its process dies. Stopping it from the panel or in game is not a
+  crash. After the configured number of crashes within the window it gives up and says so.
+- **Scheduled restart:** a daily restart at a time you choose, with chat warnings first and a world save.
+- **Announcements:** rotating chat messages while players are online.
+
+The **Activity** tab shows who did what on that server.
 
 ## Importing a server folder
 
@@ -146,45 +170,61 @@ The secret is saved in that server's `manager_meta.json`. Keep the `servers/` di
 
 ## Development reload
 
-`start.bat` enables development mode. Flask reloads Python and template changes, and the browser checks for changes to the app files and reloads the page when they change.
+`start.bat` enables development mode. Flask reloads Python and template changes, and open pages reload
+themselves when the app files change. It also turns on Flask's debug mode, so use `start-shared.bat` (debug
+off) whenever other people can reach the panel.
 
-To run without development reload behavior:
+## Tests
 
 ```powershell
-$env:MC_MANAGER_DEV = "0"
-python app.py
+python -m unittest discover -s tests -t .
 ```
+
+The tests run against a temporary data folder (`MC_MANAGER_HOME`), so they never touch your servers or accounts.
+They cover sign-in, lockout, two-factor, permissions (including a check that every state-changing route has been
+classified), path and input safety, console offsets, restore safety, Java rules, crash recovery, scheduling,
+notifications, updates and the restart flow.
 
 ## Project layout
 
 ```text
-app.py                 Flask API and server process management
-requirements.txt       Python dependencies
-templates/index.html    Application markup
-static/css/style.css   Application styles and themes
-static/js/app.js       Browser behavior
-static/js/map.js       Live map tab
-static/js/scene.js     WebGL backdrop and server core
-static/vendor/         Bundled Leaflet and three.js (no CDN, works offline)
-mock_rcon.py           Fake RCON server with simulated players for development
-update_state.json      Installed version and update preferences (created on first check)
-servers/               Local server files and metadata
-backups/               Server backup archives
-.imports/              Staging area used while a folder import is uploading
-setup.bat              Windows environment setup
-start.bat              Windows development launcher
+app.py                     Entry point and the restart supervisor
+manager/                   Application code (Flask routes register themselves on manager.app)
+  config.py  state.py        Paths, constants, in-memory runtime state
+  store.py  util.py          Metadata, settings and audit trail; safe-path and validation helpers
+  auth.py  totp.py           Accounts, sessions, permissions, two-factor
+  procs.py  javatools.py     Minecraft and Playit processes; finding and installing Java
+  notify.py  metrics.py      Discord webhook; CPU and memory numbers
+  backups.py  providers.py   Backups; jar downloads and the Modrinth client
+  rconmap.py                 RCON client, live map, markers
+  updater.py  lifecycle.py   Self-update; restarting the manager
+  routes_servers.py  routes_files.py  automation.py   HTTP routes and background jobs
+tests/                     Unit tests (python -m unittest discover -s tests -t .)
+templates/                 index.html (the panel) and login.html
+static/css/themes.css      One colour block per theme
+static/css/app.css         All other styles
+static/js/                 core, servers, detail, console, files, backups, plugins, settings, staff,
+                           automation, boot, main (plus map.js and scene.js)
+static/vendor/             Bundled Leaflet and three.js (no CDN, works offline)
+mock_rcon.py               Fake RCON server with simulated players for development
+servers/  backups/         Your data (git-ignored)
+staff.json  .secret_key  audit.jsonl  manager_settings.json  update_state.json   Local state (git-ignored)
+setup.bat  start.bat  start-shared.bat   Windows setup and launchers
 ```
+
+`MC_MANAGER_HOME` moves everything the manager writes to another folder, and `MC_MANAGER_PORT` changes the port.
 
 ## Accounts and staff panel
 
-The panel now needs a sign-in. There is one **owner** and room for **two staff**, so at most three people can ever get in.
+The panel needs a sign-in. There is one **owner** and room for **two staff**, so at most three people can ever get in.
 
 - **First run:** open `http://127.0.0.1:5000` on the PC that runs the manager and create the owner account. Setup is refused from any other address, including through Tailscale, so nobody else can claim the panel first.
-- **Staff:** the owner opens **Staff panel** in the sidebar to add, reset or remove the two staff accounts and to read the activity log. Removing an account or resetting its password signs that person out immediately.
-- **Passwords** are never stored. Only salted scrypt hashes go into `staff.json`, and they cannot be turned back into the password, even by the owner. Passwords must be 8+ characters; five wrong attempts lock that username and address for five minutes.
-- **Staff can** run servers, edit files, use the map and install plugins. **Only the owner can** manage accounts and install or roll back manager updates.
+- **Staff panel** (owner only): add, reset or remove the two staff accounts, choose what each may do, reset their two-factor, and read the activity log. Removing an account or resetting its password signs that person out immediately.
+- **Permissions:** everyone can look at everything. Staff can only change what the owner allows: *start, stop and restart*, *console and moderation*, *files, properties and plugins*, *backups*, and *create, import and delete servers*. Only the owner manages accounts, updates, Discord and Java installs.
+- **Passwords** are never stored. Only salted scrypt hashes go into `staff.json`. Passwords must be 8+ characters; five wrong attempts lock that username and address for five minutes.
+- **Two-factor sign-in** (Settings > Two-factor sign-in): works with any authenticator app. It asks for a 6-digit code after the password; each code works once, and eight one-time recovery codes are shown when you turn it on. The TOTP secret is stored in `staff.json`, so keep that file private. Turning it off needs your password and a code.
 - **Forgot the owner password:** stop the manager, delete `staff.json`, start it again, and create the owner from the host PC. Servers and backups are untouched.
-- `staff.json`, `.secret_key` (signs the session cookie) and `audit.jsonl` are git-ignored and are never overwritten by manager updates.
+- `manager_meta.json` (it holds the Playit secret) can only be opened by the owner; RCON passwords never leave the server.
 
 ## Notes
 
@@ -196,5 +236,6 @@ The panel now needs a sign-in. There is one **owner** and room for **two staff**
 - The live map needs RCON enabled on the server; without it the map shows no players.
 - Setting `MC_MANAGER_TOKEN` additionally requires an `X-Admin-Token` header on the map, marker, RCON and manager-update routes. Normal use does not need it now that sign-in exists.
 - The manager listens on `127.0.0.1` only. To reach it from another PC use `tailscale serve --bg 5000`; do not use `tailscale funnel` or port-forward it to the public internet.
-- `start.bat` runs with `MC_MANAGER_DEV=1`, which turns on Flask's debug mode. Set it to `0` before exposing the panel to other devices.
-- Java is looked up on `PATH`, then `JAVA_HOME`, then the usual Windows install folders (Adoptium, Microsoft, Zulu, Corretto, Oracle).
+- `start.bat` runs with `MC_MANAGER_DEV=1`, which turns on Flask's debug mode. Use `start-shared.bat` (debug off) before other people reach the panel.
+- Java is looked up on `PATH`, then `JAVA_HOME`, then the usual Windows install folders (Adoptium, Microsoft, Zulu, Corretto, Oracle). The manager picks the lowest installed Java that the server's Minecraft version needs, refuses to start a server on one that is too old, and Settings > Java can install Java 21 with winget.
+- Creating a server on a port another server already uses is refused.

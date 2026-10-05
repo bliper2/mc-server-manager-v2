@@ -6,8 +6,8 @@
   <meta name="author" content="Mrkraps aka orgeco" />
   <meta name="robots" content="noindex" />
   <title>Sign in · MC Server Manager</title>
-  <link rel="stylesheet" href="/static/css/style.css" />
-  <link rel="stylesheet" href="/static/css/v3.css" />
+  <link rel="stylesheet" href="/static/css/themes.css?v={{ version }}" />
+  <link rel="stylesheet" href="/static/css/app.css?v={{ version }}" />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&family=Press+Start+2P&display=swap" rel="stylesheet" />
 </head>
 <body class="login-body" data-state="{{ state }}">
@@ -52,6 +52,11 @@
           <small class="field-hint">At least 8 characters. Username: 3-24 letters, numbers, dot, dash or underscore.</small>
         </div>
         {% endif %}
+        <div class="form-group" id="code-group" hidden>
+          <label for="code">Authenticator code</label>
+          <input type="text" id="code" name="code" inputmode="text" autocomplete="one-time-code" maxlength="20" placeholder="6-digit code or a recovery code" />
+          <small class="field-hint">Open your authenticator app. Lost your phone? Use one of your recovery codes.</small>
+        </div>
         <div id="login-error" class="login-error" role="alert" hidden></div>
         <button class="btn primary large" type="submit" id="login-submit">{{ "Create owner account" if state == "open" else "Sign in" }}</button>
       </form>
@@ -86,16 +91,30 @@
         var username = document.getElementById("username").value.trim();
         if (!username || !password.value) return fail("Enter your username and password");
         if (setup && password.value !== document.getElementById("confirm").value) return fail("The two passwords do not match");
+        var codeGroup = document.getElementById("code-group");
+        var body = { username: username, password: password.value };
+        if (!codeGroup.hidden) {
+          var code = document.getElementById("code").value.trim();
+          if (!code) return fail("Enter the code from your authenticator app");
+          body.code = code;
+        }
         submit.disabled = true;
         submit.classList.add("is-busy");
         fetch(setup ? "/api/auth/setup" : "/api/auth/login", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ username: username, password: password.value })
+          body: JSON.stringify(body)
         }).then(function (response) {
           return response.json().catch(function () { return { ok: false, error: "The manager sent an unexpected reply" }; });
         }).then(function (data) {
           if (data.ok) { window.location.reload(); return; }
+          if (data.totp_required) {
+            codeGroup.hidden = false;
+            document.getElementById("code").focus();
+            if (data.error) return fail(data.error);
+            error.hidden = true;
+            return;
+          }
           fail(data.error || "Sign in failed");
         }).catch(function () {
           fail("Could not reach the manager");
