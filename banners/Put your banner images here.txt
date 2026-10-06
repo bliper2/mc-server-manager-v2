@@ -1,0 +1,2 @@
+Put your server banner images (PNG, JPG, GIF or WebP) in this folder.
+They appear under "My banners" when you choose a banner in MC Server Manager.
