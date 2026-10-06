@@ -32,6 +32,8 @@ MODPACK_CLASS = 4471
 MAX_MANIFEST_BYTES = 5 * 1024 * 1024
 RELEASE_TYPES = {1: "release", 2: "beta", 3: "alpha"}
 KEY_PATTERN = re.compile(r"^[A-Za-z0-9$./_\-]{16,120}$")
+KEY_LENGTH = 60        # CurseForge keys are bcrypt-style strings: "$2a$10$" followed by 53 characters
+KEY_PREFIX = "$2a$10$"
 
 
 class CurseForgeError(ModpackError):
@@ -56,7 +58,9 @@ def cf_request(method: str, path: str, params=None, body=None, key: str | None =
     except requests.RequestException as exc:
         raise CurseForgeError(f"Could not reach CurseForge ({type(exc).__name__})")
     if response.status_code in (401, 403):
-        raise CurseForgeError("CurseForge rejected the API key. Check it in Settings.")
+        # CurseForge answers 403 with an empty body for a missing, wrong, truncated or disabled key alike.
+        app.logger.warning("CurseForge answered HTTP %s to a request for %s", response.status_code, path.split("?")[0])
+        raise CurseForgeError(f"CurseForge rejected the API key (HTTP {response.status_code}). Check it in Settings.")
     if response.status_code == 429:
         raise CurseForgeError("CurseForge is rate limiting this key. Wait a minute and try again.")
     if response.status_code == 404:
@@ -66,6 +70,21 @@ def cf_request(method: str, path: str, params=None, body=None, key: str | None =
         return response.json()
     except (requests.RequestException, ValueError):
         raise CurseForgeError(f"CurseForge answered HTTP {response.status_code}")
+
+
+def normalize_key(raw) -> str:
+    """Pasted keys often carry spaces, a line break or surrounding quotes."""
+    return "".join(str(raw or "").split()).strip("\"'`")
+
+
+def key_shape_hint(key: str) -> str:
+    """Why a rejected key probably is not a CurseForge key, said without repeating the key."""
+    problems = []
+    if len(key) != KEY_LENGTH:
+        problems.append(f"has {len(key)} characters (a key has {KEY_LENGTH})")
+    if not key.startswith(KEY_PREFIX):
+        problems.append(f"does not start with {KEY_PREFIX}")
+    return f" The text entered {' and '.join(problems)}. Copy the whole key with its Copy button in the CurseForge console." if problems else ""
 
 
 def simplify(mod: dict) -> dict:
@@ -286,13 +305,16 @@ def api_curseforge_key():
     if denied:
         return denied
     if request.method == "POST":
-        key = str((request.get_json(silent=True) or {}).get("key") or "").strip()
+        key = normalize_key((request.get_json(silent=True) or {}).get("key"))
         settings = load_settings()
         if key:
             if not KEY_PATTERN.match(key):
-                return jsonify({"ok": False, "error": "That does not look like a CurseForge API key"}), 400
+                return jsonify({"ok": False, "error": "That does not look like a CurseForge API key" + key_shape_hint(key)}), 400
             try:
                 cf_request("GET", f"/games/{GAME_ID}", key=key)  # a quick call that fails with 403 on a wrong key
+            except CurseForgeError as exc:
+                hint = key_shape_hint(key) if "rejected" in str(exc) else ""
+                return jsonify({"ok": False, "error": str(exc) + hint}), 400
             except ModpackError as exc:
                 return failure(exc)
         settings.setdefault("curseforge", {})["api_key"] = key

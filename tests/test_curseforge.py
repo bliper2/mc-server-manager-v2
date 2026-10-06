@@ -311,6 +311,24 @@ class KeyAndRoutes(AppTestCase):
             self.assertEqual(owner.post("/api/curseforge/key", json={"key": KEY}).status_code, 400)
         self.assertFalse(owner.get("/api/curseforge/status").get_json()["configured"])
 
+    def test_pasted_keys_are_cleaned_up(self):
+        owner = self.owner()
+        with mock.patch.object(curseforge, "cf_request", return_value={"data": {}}) as check:
+            owner.post("/api/curseforge/key", json={"key": f'  "{KEY}"\n'})
+        self.assertEqual(check.call_args.kwargs["key"], KEY)
+
+    def test_a_rejected_key_explains_what_looks_wrong_without_echoing_it(self):
+        owner = self.owner()
+        truncated = KEY[:30]
+        with mock.patch.object(curseforge, "cf_request", side_effect=curseforge.CurseForgeError("CurseForge rejected the API key (HTTP 403). Check it in Settings.")):
+            reply = owner.post("/api/curseforge/key", json={"key": truncated})
+        message = reply.get_json()["error"]
+        self.assertEqual(reply.status_code, 400)
+        self.assertIn("30 characters", message)
+        self.assertNotIn(truncated, message)
+        self.assertEqual(curseforge.key_shape_hint(KEY[:60].ljust(60, "x")), "", "a well-formed key gets no hint")
+        self.assertIn("does not start with", curseforge.key_shape_hint("x" * 60))
+
     def test_key_is_owner_only(self):
         owner = self.owner()
         helper = self.staff(owner)
