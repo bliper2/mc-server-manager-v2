@@ -450,3 +450,19 @@ class RepositoryLibraries(AppTestCase):
         with mock.patch("builtins.print"):
             self.assertEqual(tool.main(["add_community.py", "poster", "x.png"]), 2)
 
+    def test_a_picture_the_owner_already_has_is_not_shown_twice(self):
+        owner = self.owner()
+        (HOME / "logos").mkdir(exist_ok=True)
+        community_dir = HOME / "community_dupes"
+        community_dir.mkdir(exist_ok=True)
+        (HOME / "logos" / "My copy.gif").write_bytes(GIF)
+        (community_dir / "Shared copy.gif").write_bytes(GIF)
+        (community_dir / "Different.png").write_bytes(PNG)
+        with mock.patch.object(logos.COMMUNITY_LOGOS, "folder", community_dir):
+            data = owner.get("/api/logos").get_json()
+            self.assertEqual([c["name"] for c in data["custom"]], ["My copy"])
+            self.assertEqual([c["name"] for c in data["community"]], ["Different"], "the identical community file is hidden")
+            (HOME / "logos" / "My copy.gif").unlink()
+            again = owner.get("/api/logos").get_json()
+            self.assertEqual(sorted(c["name"] for c in again["community"]), ["Different", "Shared copy"], "without the owner's copy it shows again")
+

@@ -10,9 +10,11 @@ images. The owner's live in two folders next to the manager, "logos" and "banner
 in there shows up in the picker, whatever it is called (even with no file extension, as saved pages and "Save image as"
 often leave it); imports from the panel and from Pinterest are saved into the same folders. GIFs stay animated."""
 
+import hashlib
 import html
 import re
 import time
+from functools import lru_cache
 from pathlib import Path
 from urllib.parse import quote, urljoin, urlparse
 
@@ -101,10 +103,12 @@ class Gallery:
         return {"ref": f"custom/{path.name}", "name": re.sub(r"[-_]+", " ", base).strip() or path.name, "category": "mine",
                 "url": f"{self.url_base}{quote(path.name)}"}
 
-    def listing(self) -> list:
+    def paths(self) -> list:
         self.ensure()
-        files = sorted((p for p in self.folder.iterdir() if custom_name_ok(p.name) and self.is_image(p)), key=lambda p: p.stat().st_mtime, reverse=True)
-        return [self.describe(p) for p in files]
+        return sorted((p for p in self.folder.iterdir() if custom_name_ok(p.name) and self.is_image(p)), key=lambda p: p.stat().st_mtime, reverse=True)
+
+    def listing(self) -> list:
+        return [self.describe(p) for p in self.paths()]
 
     def add(self, data: bytes, label: str) -> dict:
         if len(data) > self.limit():
@@ -127,6 +131,16 @@ class Gallery:
             raise LogoError(f"The {self.folder.name} folder is full ({MAX_CUSTOM_LOGOS} files). Delete some first")
         path.write_bytes(data)
         return self.describe(path)
+
+
+@lru_cache(maxsize=2048)
+def _digest(path: str, mtime_ns: int, size: int) -> str:
+    return hashlib.sha1(Path(path).read_bytes()).hexdigest()
+
+
+def file_digest(path: Path) -> str:
+    info = path.stat()
+    return _digest(str(path), info.st_mtime_ns, info.st_size)
 
 
 class CommunityGallery(Gallery):
@@ -198,12 +212,23 @@ def list_bundled(folder: Path, name: str) -> list:
     return sorted((describe_bundled(p, name) for p in folder.iterdir() if NAME_PATTERN.match(p.name)), key=order)
 
 
+def with_community(own: Gallery, community: Gallery) -> tuple:
+    """(the owner's images, community images). A community picture the owner already has a copy of is left out, so an
+    install that holds the same file in both places shows it once, as the owner's own."""
+    mine = own.paths()
+    owned = {file_digest(path) for path in mine}
+    shared = [community.describe(path) for path in community.paths() if file_digest(path) not in owned]
+    return [own.describe(path) for path in mine], shared
+
+
 def list_logos() -> dict:
-    return {"bundled": list_bundled(BUNDLED_DIR, "logos"), "community": COMMUNITY_LOGOS.listing(), "custom": LOGOS.listing()}
+    custom, community = with_community(LOGOS, COMMUNITY_LOGOS)
+    return {"bundled": list_bundled(BUNDLED_DIR, "logos"), "community": community, "custom": custom}
 
 
 def list_banners() -> dict:
-    return {"bundled": list_bundled(BUNDLED_BANNERS, "banners"), "community": COMMUNITY_BANNERS.listing(), "custom": BANNERS.listing()}
+    custom, community = with_community(BANNERS, COMMUNITY_BANNERS)
+    return {"bundled": list_bundled(BUNDLED_BANNERS, "banners"), "community": community, "custom": custom}
 
 
 def add_custom(data: bytes, label: str) -> dict:
