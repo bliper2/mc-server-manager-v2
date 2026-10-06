@@ -256,7 +256,7 @@ class WorldFolders(AppTestCase):
     def test_every_known_layout_is_found(self):
         make_server()
         new = self.folder("world", "dimensions", "minecraft", "overworld", "region", files=["r.0.0.mca", "r.-1.2.mca"])
-        self.assertEqual(worldmap.region_dir("alpha_1", "overworld"), new)
+        self.assertEqual(worldmap.region_dir("alpha_1", "overworld").resolve(), (new).resolve())
         self.assertEqual(sorted(worldmap.list_regions("alpha_1", "overworld")), [(-1, 2), (0, 0)])
         self.folder("world", "dimensions", "minecraft", "the_nether", "region", files=["r.0.0.mca"])
         self.assertIsNotNone(worldmap.region_dir("alpha_1", "the_nether"))
@@ -267,14 +267,14 @@ class WorldFolders(AppTestCase):
         (base / "world" / "region").mkdir(parents=True)
         (base / "world" / "DIM-1" / "region").mkdir(parents=True)
         (base / "world" / "DIM1" / "region").mkdir(parents=True)
-        self.assertEqual(worldmap.region_dir("old_1", "overworld"), base / "world" / "region")
-        self.assertEqual(worldmap.region_dir("old_1", "the_nether"), base / "world" / "DIM-1" / "region")
-        self.assertEqual(worldmap.region_dir("old_1", "the_end"), base / "world" / "DIM1" / "region")
+        self.assertEqual(worldmap.region_dir("old_1", "overworld").resolve(), (base / "world" / "region").resolve())
+        self.assertEqual(worldmap.region_dir("old_1", "the_nether").resolve(), (base / "world" / "DIM-1" / "region").resolve())
+        self.assertEqual(worldmap.region_dir("old_1", "the_end").resolve(), (base / "world" / "DIM1" / "region").resolve())
         make_server("split_1", name="Split", port=25602)
         split = HOME / "servers" / "split_1"
         (split / "world" / "region").mkdir(parents=True)
         (split / "world_nether" / "DIM-1" / "region").mkdir(parents=True)
-        self.assertEqual(worldmap.region_dir("split_1", "the_nether"), split / "world_nether" / "DIM-1" / "region", "Paper keeps the nether in its own folder")
+        self.assertEqual(worldmap.region_dir("split_1", "the_nether").resolve(), (split / "world_nether" / "DIM-1" / "region").resolve(), "Paper keeps the nether in its own folder")
         self.assertIsNone(worldmap.region_dir("split_1", "the_end"))
 
     def test_the_level_name_comes_from_server_properties_and_cannot_escape(self):
@@ -282,7 +282,7 @@ class WorldFolders(AppTestCase):
         (folder / "server.properties").write_text("level-name=My Survival World\n", encoding="utf-8")
         (folder / "My Survival World" / "region").mkdir(parents=True)
         self.assertEqual(worldmap.level_name("alpha_1"), "My Survival World")
-        self.assertEqual(worldmap.region_dir("alpha_1", "overworld"), folder / "My Survival World" / "region")
+        self.assertEqual(worldmap.region_dir("alpha_1", "overworld").resolve(), (folder / "My Survival World" / "region").resolve())
         for bad in ("../../etc", "..", "a/b", ".hidden", "", "x" * 80):
             (folder / "server.properties").write_text(f"level-name={bad}\n", encoding="utf-8")
             self.assertEqual(worldmap.level_name("alpha_1"), "world", repr(bad))
