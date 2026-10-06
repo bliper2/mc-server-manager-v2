@@ -14,14 +14,14 @@ from werkzeug.utils import secure_filename
 
 from . import app
 from .auth import account_permissions, current_account, is_local_request, needs_setup
-from .config import BACKUPS_DIR, HEADERS, VERSION, IMPORTS_DIR, IMPORT_BATCH_BYTES, IMPORT_SESSION_TTL, MAX_RAM_MB, MIN_RAM_MB
+from .config import ASSET_VERSION, BACKUPS_DIR, HEADERS, VERSION, IMPORTS_DIR, IMPORT_BATCH_BYTES, IMPORT_SESSION_TTL, MAX_RAM_MB, MIN_RAM_MB
 from . import metrics
 from .procs import ping_minecraft_server, send_command, start_playit, start_server, stop_playit, stop_server
 from .providers import download_paper, download_purpur, download_vanilla, get_paper_versions, get_purpur_versions
 from .rconmap import Rcon, RconError, rcon_settings
 from .state import active_players, backup_jobs, console_dropped, console_logs, import_sessions, playit_logs
 from .store import get_server_path, is_playit_running, is_running, list_servers, load_meta, read_audit, save_meta
-from .util import clamp_ram, detect_server_type, detect_version, has_line_break, host_memory, read_port_from_properties, sanitize_relative_parts, suggested_ram_ceiling, unique_server_id
+from .util import PLAYER_NAME_PATTERN, clamp_ram, detect_server_type, detect_version, has_line_break, host_memory, read_port_from_properties, sanitize_relative_parts, suggested_ram_ceiling, unique_server_id
 
 def purge_stale_imports():
     now = time.time()
@@ -37,10 +37,10 @@ def purge_stale_imports():
 def index():
     account = current_account()
     if account:
-        page = render_template("index.html", user=account["username"], role=account["role"], perms=" ".join(account_permissions(account)), version=VERSION)
+        page = render_template("index.html", user=account["username"], role=account["role"], perms=" ".join(account_permissions(account)), version=VERSION, asset=ASSET_VERSION)
     else:
         state = "open" if needs_setup() and is_local_request() else ("remote" if needs_setup() else "login")
-        page = render_template("login.html", state=state, version=VERSION)
+        page = render_template("login.html", state=state, version=VERSION, asset=ASSET_VERSION)
     response = make_response(page)
     response.headers["Cache-Control"] = "no-store"
     return response
@@ -55,7 +55,10 @@ def api_server_activity(sid):
 
 @app.route("/api/servers")
 def api_servers():
-    return jsonify(list_servers())
+    servers = list_servers()
+    for server in servers:
+        server["players"] = len(active_players.get(server["id"], [])) if server["running"] else 0
+    return jsonify(servers)
 
 @app.route("/api/server/<sid>/ping")
 def api_server_ping(sid):
@@ -95,6 +98,8 @@ def api_create():
         return jsonify({"ok": False, "error": "RAM, port, and max players must be valid numbers"}), 400
     if not name or not version:
         return jsonify({"ok": False, "error": "Name and version required"}), 400
+    if data.get("accept_eula") is not True:
+        return jsonify({"ok": False, "error": "Accept the Minecraft EULA (https://aka.ms/MinecraftEULA) to create a server"}), 400
     taken = next((s for s in list_servers() if int(s.get("port") or 0) == port), None)
     if taken:
         return jsonify({"ok": False, "error": f"Port {port} is already used by \"{taken.get('name')}\". Pick another port, or both servers will fail to start."}), 409
@@ -144,7 +149,7 @@ def api_create():
     ])
     (path / "server.properties").write_text(props, encoding="utf-8")
     logo = data.get("logo") if isinstance(data.get("logo"), dict) else {}
-    meta = {"name": name, "type": stype, "version": version, "jar": jar_name, "ram": ram, "port": port, "logo": {"mark": str(logo.get("mark") or name[:2]).upper()[:2], "style": str(logo.get("style") or "avatar-lime")}, "created": datetime.now().isoformat()}
+    meta = {"name": name, "type": stype, "version": version, "jar": jar_name, "ram": ram, "port": port, "logo": {"mark": str(logo.get("mark") or name[:2]).upper()[:2], "style": str(logo.get("style") or "avatar-lime")}, "eula_accepted": True, "created": datetime.now().isoformat()}
     save_meta(server_id, meta)
     return jsonify({"ok": True, "id": server_id, "meta": meta})
 
@@ -429,6 +434,8 @@ def api_player_action(sid):
     reason = (data.get("reason") or "Banned by admin").strip()
     if not player and action not in ("whitelist_on", "whitelist_off"):
         return jsonify({"ok": False, "error": "player required"}), 400
+    if player and not PLAYER_NAME_PATTERN.fullmatch(player):
+        return jsonify({"ok": False, "error": "Player names use letters, numbers, underscore, dot and dash (up to 32 characters)"}), 400
     if has_line_break(player, reason, data.get("value"), data.get("item"), data.get("target")):
         # send_command writes one line per command; a newline would smuggle in a second command.
         return jsonify({"ok": False, "error": "Line breaks are not allowed in player actions"}), 400

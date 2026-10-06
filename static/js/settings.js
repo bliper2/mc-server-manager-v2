@@ -326,9 +326,71 @@ async function removeWebhook() {
   }
 }
 
+// ----- diagnostics, log, sign out -----
+
+let lastDiagnostics = "";
+
+function formatMb(mb) {
+  return mb == null ? "unknown" : mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb} MB`;
+}
+
+async function loadDiagnostics() {
+  if (!IS_OWNER) return;
+  const box = document.getElementById("diagnostics");
+  try {
+    const [info, disk] = await Promise.all([requestJson("/api/diagnostics"), requestJson("/api/disk")]);
+    const rows = [
+      ["Version", info.version], ["Python", info.python], ["System", info.platform], ["Data folder", info.data_dir],
+      ["Port", info.port], ["Mode", info.dev_mode ? "development (debug on)" : "normal"],
+      ["Can restart itself", info.can_restart ? "yes" : "no"], ["Uptime", formatUptime(info.uptime)],
+      ["Servers", `${info.servers} (${info.running} running)`],
+      ["Java", info.java.found ? `${info.java.major} at ${info.java.path}` : "not found"],
+      ["Installed commit", info.update.installed || "unknown"], ["Update channel", info.update.channel],
+      ["Discord", info.notifications ? "connected" : "not set"], ["Live stats (psutil)", info.psutil ? "available" : "missing"],
+      ["Disk free", `${formatMb(info.free_mb)} of ${formatMb(info.total_mb)}${disk.low ? " (LOW)" : ""}`],
+      ["Log size", formatBytes(info.log_bytes)]
+    ];
+    const servers = Object.entries(disk.servers).map(([id, mb]) => `${knownServers.find(s => s.id === id)?.name || id}: ${formatMb(mb)} + ${formatMb(disk.backups[id] || 0)} backups`);
+    lastDiagnostics = rows.map(([k, v]) => `${k}: ${v}`).join("\n") + (servers.length ? `\nStorage:\n  ${servers.join("\n  ")}` : "");
+    box.innerHTML = rows.map(([k, v]) => `<div class="diag-row"><span>${escapeHtml(k)}</span><strong>${escapeHtml(String(v))}</strong></div>`).join("")
+      + (servers.length ? `<div class="diag-row"><span>Storage</span><strong>${servers.map(escapeHtml).join("<br />")}</strong></div>` : "");
+  } catch (error) {
+    box.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
+  }
+}
+
+function copyDiagnostics() {
+  if (lastDiagnostics) copyText(lastDiagnostics);
+}
+
+async function loadManagerLog() {
+  if (!IS_OWNER) return;
+  const box = document.getElementById("manager-log");
+  try {
+    const data = await requestJson("/api/manager/log?lines=200");
+    box.textContent = data.lines.length ? data.lines.join("\n") : "Nothing logged yet.";
+    box.scrollTop = box.scrollHeight;
+  } catch (error) {
+    box.textContent = error.message;
+  }
+}
+
+async function signOutEverywhere() {
+  if (!(await uiConfirm("Sign out every other browser that is signed in as you? This one stays signed in.", { title: "Sign out everywhere", confirmText: "Sign out others", always: true }))) return;
+  try {
+    const data = await requestJson("/api/auth/signout-all", { method: "POST" });
+    if (!data.ok) throw new Error(data.error);
+    showToast("Other sessions ended", "success");
+  } catch (error) {
+    showToast(error.message, "error");
+  }
+}
+
 function loadSettingsTab() {
   loadManagerUpdate();
   loadTwoFactor();
   loadJava();
   loadNotifications();
+  loadDiagnostics();
+  loadManagerLog();
 }

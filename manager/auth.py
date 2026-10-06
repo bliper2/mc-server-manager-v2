@@ -1,5 +1,8 @@
 """Accounts, sessions, permissions, two-factor sign-in and staff management."""
 
+import csv
+import hmac
+import io
 import json
 import os
 import re
@@ -7,7 +10,7 @@ import threading
 import time
 from datetime import datetime
 
-from flask import abort, jsonify, request, session
+from flask import Response, abort, jsonify, request, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from . import app, totp
@@ -22,7 +25,7 @@ def require_admin():
     if not token:
         return None
     sent = request.headers.get("X-Admin-Token") or (request.json or {}).get("token") if request.is_json else request.headers.get("X-Admin-Token")
-    if sent != token:
+    if not hmac.compare_digest(str(sent or ""), token):
         return jsonify({"ok": False, "error": "Admin token required"}), 401
     return None
 
@@ -31,7 +34,13 @@ USERNAME_PATTERN = re.compile(r"[A-Za-z0-9_.\-]{3,24}")
 PASSWORD_MIN, PASSWORD_MAX = 8, 128
 LOGIN_MAX_FAILS = 5
 LOGIN_LOCK_SECONDS = 300
-PUBLIC_API = {"/api/auth/login", "/api/auth/setup", "/api/auth/status", "/api/boot"}
+PUBLIC_API = {"/api/auth/login", "/api/auth/setup", "/api/auth/status", "/api/boot", "/api/health"}
+LAST_SEEN_EVERY = 60
+last_seen_cache = {}
+# Passwords that are guessed first. Not exhaustive, just the obvious ones.
+COMMON_PASSWORDS = {"password", "password1", "password12", "password123", "12345678", "123456789", "1234567890", "qwertyui", "qwerty123",
+                    "qwertyuiop", "iloveyou", "admin123", "letmein1", "welcome1", "minecraft", "minecraft1", "minecraft123", "11111111",
+                    "00000000", "abcd1234", "abc12345", "passw0rd", "p@ssw0rd", "changeme", "football", "baseball", "dragon123", "monkey123"}
 account_lock = threading.Lock()
 login_attempts = {}
 # Checked against when a username does not exist, so a miss costs the same time as a wrong password.
@@ -61,7 +70,9 @@ ENDPOINT_RULES = {
     "api_create": "manage", "api_import_start": "manage", "api_import_upload": "manage", "api_import_finish": "manage",
     "api_import_cancel": "manage", "api_delete": "manage",
     "api_staff_create": "owner", "api_staff_reset": "owner", "api_staff_delete": "owner", "api_staff_permissions": "owner",
-    "api_staff_2fa_reset": "owner", "api_manager_update_settings": "owner", "api_manager_update_apply": "owner",
+    "api_staff_2fa_reset": "owner", "api_signout_all": "any", "api_diagnostics": "owner",
+    "api_server_rename": "manage", "api_server_clone": "manage", "api_launch": "control", "api_fs_rename": "files",
+    "api_plugin_toggle": "files", "api_plugin_delete": "files", "api_manager_update_settings": "owner", "api_manager_update_apply": "owner",
     "api_manager_update_rollback": "owner", "api_manager_restart": "owner", "api_notifications": "owner",
     "api_notifications_test": "owner", "api_java_install": "owner",
     "api_manager_update_check": "any", "api_auth_logout": "any", "api_auth_password": "any", "api_auth_2fa_begin": "any",
@@ -100,7 +111,7 @@ def clean_permissions(value):
     return [p for p in ALL_PERMISSIONS if p in value]
 
 def public_account(account: dict) -> dict:
-    info = {key: account.get(key) for key in ("username", "role", "created", "last_login")}
+    info = {key: account.get(key) for key in ("username", "role", "created", "last_login", "last_seen")}
     info["permissions"] = account_permissions(account)
     info["totp_enabled"] = bool(account.get("totp_enabled"))
     info["recovery_left"] = len(account.get("recovery") or [])
@@ -128,7 +139,22 @@ def current_account():
             session.clear()
             account = None
     request.environ["account"] = account
+    if account:
+        note_activity(account["username"])
     return account
+
+def note_activity(username: str):
+    """Remembers when someone last used the panel, written at most once a minute per person."""
+    now = time.time()
+    if now - last_seen_cache.get(username, 0) < LAST_SEEN_EVERY:
+        return
+    last_seen_cache[username] = now
+    with account_lock:
+        accounts = load_accounts()
+        stored = find_account(username, accounts)
+        if stored:
+            stored["last_seen"] = datetime.now().isoformat(timespec="seconds")
+            save_accounts(accounts)
 
 def start_session(account: dict):
     session.clear()
@@ -144,6 +170,8 @@ def validate_credentials(username: str, password: str):
         return f"Password must be {PASSWORD_MIN}-{PASSWORD_MAX} characters"
     if password.strip().lower() == username.strip().lower():
         return "Password cannot be the same as the username"
+    if password.lower() in COMMON_PASSWORDS or len(set(password)) < 4:
+        return "That password is too easy to guess. Use something longer or less common."
     return None
 
 def new_account(username: str, password: str, role: str, permissions=None) -> dict:
@@ -334,6 +362,19 @@ def api_auth_password():
     audit(account["username"], "changed own password")
     return jsonify({"ok": True})
 
+@app.route("/api/auth/signout-all", methods=["POST"])
+def api_signout_all():
+    """Ends every other session of this account (stolen cookie, forgotten browser) and keeps this one."""
+    account = current_account()
+    with account_lock:
+        accounts = load_accounts()
+        stored = find_account(account["username"], accounts)
+        stored["sv"] = int(stored.get("sv", 1)) + 1
+        save_accounts(accounts)
+    start_session(stored)
+    audit(account["username"], "signed out everywhere else")
+    return jsonify({"ok": True})
+
 @app.route("/api/auth/2fa/begin", methods=["POST"])
 def api_auth_2fa_begin():
     account = current_account()
@@ -498,3 +539,18 @@ def api_staff_delete(username):
     audit(current_account()["username"], "removed staff account", target=target["username"])
     notify("staff_change", f"**{current_account()['username']}** removed staff account **{target['username']}**")
     return jsonify({"ok": True})
+
+@app.route("/api/staff/audit.csv")
+def api_audit_csv():
+    denied = require_owner()
+    if denied:
+        return denied
+    rows = read_audit(5000)
+    columns = ["at", "user", "action", "server", "target", "status", "ip", "exit_code"]
+    out = io.StringIO()
+    writer = csv.writer(out)
+    writer.writerow(columns)
+    for entry in rows:
+        # A leading = + - @ would be run as a formula when the file is opened in a spreadsheet.
+        writer.writerow([("'" + str(entry.get(col)) if str(entry.get(col, ""))[:1] in "=+-@" else entry.get(col, "")) for col in columns])
+    return Response(out.getvalue(), mimetype="text/csv", headers={"Content-Disposition": "attachment; filename=audit.csv"})

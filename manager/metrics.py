@@ -3,7 +3,7 @@
 import os
 import time
 
-from .state import running_servers, started_at
+from .state import active_players, running_servers, started_at
 from .store import is_running
 from .util import psutil
 
@@ -17,7 +17,7 @@ def collect() -> dict:
     for sid, process in list(running_servers.items()):
         if not is_running(sid):
             continue
-        entry = {"uptime": int(now - started_at.get(sid, now)), "cpu": None, "ram_mb": None, "threads": None}
+        entry = {"uptime": int(now - started_at.get(sid, now)), "cpu": None, "ram_mb": None, "threads": None, "players": len(active_players.get(sid, []))}
         if psutil is not None:
             try:
                 handle = _tracked.get(process.pid) or psutil.Process(process.pid)

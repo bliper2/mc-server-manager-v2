@@ -4,6 +4,7 @@
 Restarting: the panel can restart itself (after an update, or from Settings) by exiting with
 RESTART_EXIT_CODE. In dev mode the Werkzeug reloader relaunches it. Otherwise this file runs the real
 server in a child process and relaunches it, so the terminal window never has to be closed and reopened."""
+import atexit
 import os
 import subprocess
 import sys
@@ -13,6 +14,7 @@ import time
 from manager import app
 from manager.automation import start_background_threads
 from manager.config import DEV_MODE, PORT, RESTART_EXIT_CODE
+from manager.lifecycle import shutdown_servers
 from manager.util import psutil
 
 
@@ -82,4 +84,6 @@ if __name__ == "__main__":
         sys.exit(supervise())
     else:
         exit_when_supervisor_dies()
+        # Not in dev mode: the reloader exits on every file save, and servers should not stop each time.
+        atexit.register(shutdown_servers)
         serve()

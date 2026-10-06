@@ -8,11 +8,58 @@ import threading
 import time
 from datetime import datetime
 
+from .config import MAX_RAM_MB, MIN_RAM_MB
+
 from .javatools import choose_java, required_java_major
 from .notify import notify
-from .state import (active_players, console_dropped, console_logs, exit_hooks, playit_logs, playit_processes,
-                    running_servers, started_at)
-from .store import get_server_path, is_playit_running, is_running, load_meta
+from .state import (active_players, console_dropped, console_logs, exit_hooks, joined_at, playit_logs, playit_processes,
+                    running_servers, start_locks, started_at)
+from .store import add_playtime, get_server_path, is_playit_running, is_running, load_meta
+
+# Aikar's G1GC flags: the community-standard tuning for Paper-class servers (https://docs.papermc.io/paper/aikars-flags).
+AIKAR_FLAGS = [
+    "-XX:+UseG1GC", "-XX:+ParallelRefProcEnabled", "-XX:MaxGCPauseMillis=200", "-XX:+UnlockExperimentalVMOptions",
+    "-XX:+DisableExplicitGC", "-XX:+AlwaysPreTouch", "-XX:G1NewSizePercent=30", "-XX:G1MaxNewSizePercent=40",
+    "-XX:G1HeapRegionSize=8M", "-XX:G1ReservePercent=20", "-XX:G1HeapWastePercent=5", "-XX:G1MixedGCCountTarget=4",
+    "-XX:InitiatingHeapOccupancyPercent=15", "-XX:G1MixedGCLiveThresholdPercent=90", "-XX:G1RSetUpdatingPauseTimePercent=5",
+    "-XX:SurvivorRatio=32", "-XX:+PerfDisableSharedMem", "-XX:MaxTenuringThreshold=1",
+    "-Dusing.aikars.flags=https://mcflags.emc.gs", "-Daikars.new.flags=true",
+]
+FLAG_PATTERN = re.compile(r"^-[A-Za-z0-9_.:=+\-/]{1,120}$")
+# Flags that would let a custom value take over the launch (another jar, an agent, a command on error) or fight the managed heap size.
+BLOCKED_FLAGS = ("-jar", "-cp", "-classpath", "-javaagent", "-agentlib", "-agentpath", "-Xbootclasspath", "-XX:OnError",
+                 "-XX:OnOutOfMemoryError", "-XX:Flight", "-Xmx", "-Xms", "-XX:+UnlockDiagnosticVMOptions", "--add-opens", "-XX:SharedArchiveFile")
+
+def parse_custom_flags(text: str):
+    """Returns (flags, error). Only plain -X/-D/-XX options are accepted."""
+    flags = str(text or "").split()
+    if len(flags) > 40:
+        return [], "At most 40 flags"
+    for flag in flags:
+        if not FLAG_PATTERN.match(flag):
+            return [], f"\"{flag[:40]}\" is not a valid JVM flag"
+        if flag.startswith(BLOCKED_FLAGS):
+            return [], f"{flag.split('=')[0]} is not allowed here (the manager sets memory and the jar itself)"
+    return flags, None
+
+def launch_settings(meta: dict) -> dict:
+    stored = meta.get("launch") if isinstance(meta.get("launch"), dict) else {}
+    mode = stored.get("flags") if stored.get("flags") in ("default", "optimized", "custom") else "default"
+    flags, _ = parse_custom_flags(stored.get("custom_flags", ""))
+    return {"flags": mode, "custom_flags": " ".join(flags)}
+
+def jvm_command(java: str, meta: dict, jar_path, ram_mb: int) -> list:
+    ram_mb = max(MIN_RAM_MB, min(MAX_RAM_MB, int(ram_mb)))
+    launch = launch_settings(meta)
+    command = [java]
+    # Aikar's guidance is Xms = Xmx so the heap never resizes under load.
+    command.append(f"-Xms{ram_mb if launch['flags'] == 'optimized' else max(512, ram_mb // 2)}M")
+    command.append(f"-Xmx{ram_mb}M")
+    if launch["flags"] == "optimized":
+        command.extend(AIKAR_FLAGS)
+    elif launch["flags"] == "custom":
+        command.extend(launch["custom_flags"].split())
+    return command + ["-jar", str(jar_path), "nogui"]
 
 def encode_varint(value):
     output = bytearray()
@@ -77,6 +124,12 @@ def read_console(server_id, process):
             running_servers.pop(server_id, None)
         finish_process(server_id, process)
 
+def close_sessions(server_id):
+    """Counts the time of players still online when their server ends."""
+    now = time.time()
+    for name, joined in list(joined_at.pop(server_id, {}).items()):
+        add_playtime(server_id, name, now - joined)
+
 def finish_process(server_id, process):
     """Runs once per Minecraft process after its output closes and tells the exit hooks how it ended."""
     try:
@@ -86,6 +139,7 @@ def finish_process(server_id, process):
     deliberate = getattr(process, "mcm_deliberate", False)
     if running_servers.get(server_id) is None:
         started_at.pop(server_id, None)
+        close_sessions(server_id)
     crashed = not deliberate and code not in (0, None)
     for hook in list(exit_hooks):
         try:
@@ -105,14 +159,23 @@ def update_active_players(server_id, text):
         name = joined.group(1).strip()
         if name not in players:
             players.append(name)
+            joined_at.setdefault(server_id, {})[name] = time.time()
             notify("player_join", f"**{name}** joined ({len(players)} online)", server_id)
     elif left:
         name = left.group(1).strip()
         if name in players:
             notify("player_leave", f"**{name}** left", server_id)
+        started = joined_at.get(server_id, {}).pop(name, None)
+        if started:
+            add_playtime(server_id, name, time.time() - started)
         active_players[server_id] = [player for player in players if player != name]
 
 def start_server(server_id, ram_mb=2048, automatic=False):
+    # A double click (or the scheduler racing a person) must not launch two copies on one port.
+    with start_locks.setdefault(server_id, threading.Lock()):
+        return _start_server(server_id, ram_mb, automatic)
+
+def _start_server(server_id, ram_mb, automatic):
     if is_running(server_id):
         return False, "Already running"
     path = get_server_path(server_id)
@@ -128,8 +191,10 @@ def start_server(server_id, ram_mb=2048, automatic=False):
     if required and major and major < required:
         return False, (f"Minecraft {meta.get('version')} needs Java {required} or newer, but this PC only has Java {major}. "
                        f"Open Settings > Java and install Java {required}.")
+    if meta.get("eula_accepted") is False:
+        return False, "Accept the Minecraft EULA first (https://aka.ms/MinecraftEULA). Servers created before this check count as accepted."
     (path / "eula.txt").write_text("eula=true\n", encoding="utf-8")
-    cmd = [java, f"-Xms{max(512, ram_mb // 2)}M", f"-Xmx{ram_mb}M", "-jar", str(jar_path), "nogui"]
+    cmd = jvm_command(java, meta, jar_path, ram_mb)
     try:
         process = subprocess.Popen(cmd, cwd=str(path), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.PIPE)
     except FileNotFoundError:

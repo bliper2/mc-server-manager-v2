@@ -68,7 +68,7 @@ document.querySelectorAll(".dtab").forEach(btn => {
     if (btn.dataset.dtab === "players") loadPlayers();
     if (btn.dataset.dtab === "commands") loadCommandWiki();
     if (btn.dataset.dtab === "files") loadFs();
-    if (btn.dataset.dtab === "props") loadProps();
+    if (btn.dataset.dtab === "props") { loadProps(); loadLaunch(); }
     if (btn.dataset.dtab === "backups") loadBackups();
     if (btn.dataset.dtab === "anticheat") loadAntiCheat();
     if (btn.dataset.dtab === "plugins") { loadPluginMods(); loadPluginConfigs(); loadAutoUpdate(); }
@@ -118,7 +118,34 @@ document.addEventListener("pointermove", event => {
   });
 }, { passive: true });
 
+document.getElementById("server-search").addEventListener("input", event => {
+  serverQuery = event.target.value;
+  serversSettled = false;
+  serversHtml = "";
+  loadServers();
+});
+
+const sortSelect = document.getElementById("server-sort");
+sortSelect.value = serverSort;
+sortSelect.addEventListener("change", () => {
+  serverSort = sortSelect.value;
+  try { localStorage.setItem("mc-manager-list", JSON.stringify({ sort: serverSort })); } catch {}
+  serversSettled = false;
+  serversHtml = "";
+  loadServers();
+});
+
+document.getElementById("fs-content").addEventListener("input", () => setFsDirty(true));
+document.getElementById("props-filter").addEventListener("input", filterProps);
+document.getElementById("audit-filter")?.addEventListener("input", renderAudit);
+window.addEventListener("beforeunload", event => {
+  if (fsDirty) { event.preventDefault(); event.returnValue = ""; }
+});
+
 // Init
+restoreSidebar();
+applyConsoleScale();
+initPalette();
 initAccountUi();
 initSettings();
 initConsoleControls();

@@ -10,17 +10,26 @@ from flask import jsonify, request
 from . import app
 from .auth import require_owner
 from .backups import auto_backup_settings, auto_update_settings, run_backup_task, start_job
+from . import metrics
 from .config import MAINTENANCE_INTERVAL, SERVERS_DIR
 from .javatools import java_status, start_java_install
 from .lifecycle import begin_restart, resume_servers, running_server_ids, supervised
 from .notify import notify, public_settings, send_test, update_settings
-from .procs import send_command, start_server, stop_server
+from .ops import LOW_DISK_MB, disk_free_mb
+from .procs import ping_minecraft_server, send_command, start_server, stop_server
 from .providers import apply_plugin_update, scan_plugin_updates
 from .state import active_players, backup_jobs, crash_times, exit_hooks, restart_flags
 from .store import audit, get_server_path, is_running, load_meta, save_meta
 from .updater import check_manager_update
 
 SCHEDULER_TICK = 15
+CPU_ALERT_PERCENT = 90
+RAM_ALERT_PERCENT = 92
+ALERT_SAMPLES = 8          # consecutive 15 s samples, i.e. two minutes of sustained load
+ALERT_COOLDOWN = 1800
+HUNG_AFTER_SECONDS = 180   # grace period for world generation after a start
+HUNG_CHECKS = 5            # consecutive one-minute checks without an answer
+_watch: dict = {"high": {}, "hung": {}, "alerted": {}}
 TIME_PATTERN = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 DEFAULT_AUTOMATION = {
     "auto_restart": {"enabled": False, "max_tries": 3, "window_minutes": 10},
@@ -155,11 +164,53 @@ def scheduler_tick(now: datetime | None = None):
                 send_command(sid, f"say {message}")
 
 
+def _alert_due(key, cooldown, now) -> bool:
+    if now - _watch["alerted"].get(key, 0) < cooldown:
+        return False
+    _watch["alerted"][key] = now
+    return True
+
+
+def run_watchers(tick: int, now: float | None = None, collect=metrics.collect, ping=ping_minecraft_server, free_mb=disk_free_mb):
+    """Quiet health checks that only speak up (Discord and the activity log) when something stays wrong."""
+    now = time.time() if now is None else now
+    snapshot = collect()["servers"]
+    for sid in [s for s in _watch["high"] if s.split("|")[0] not in snapshot]:
+        _watch["high"].pop(sid, None)
+    for sid, stat in snapshot.items():
+        meta = load_meta(sid)
+        limit = _clamp(meta.get("ram", 2048), 512, 65536, 2048)
+        readings = (("cpu", stat.get("cpu"), CPU_ALERT_PERCENT, "CPU"),
+                    ("ram", None if stat.get("ram_mb") is None else stat["ram_mb"] / limit * 100, RAM_ALERT_PERCENT, "Memory"))
+        for kind, value, threshold, label in readings:
+            key = f"{sid}|{kind}"
+            if value is not None and value >= threshold:
+                _watch["high"][key] = _watch["high"].get(key, 0) + 1
+            else:
+                _watch["high"][key] = 0
+            if _watch["high"][key] >= ALERT_SAMPLES and _alert_due(key, ALERT_COOLDOWN, now):
+                audit("system", f"{label.lower()} above {threshold}% for two minutes", server=sid)
+                notify("resource_alert", f"{label} has been above {threshold}% for two minutes ({value:.0f}%).", sid)
+        if tick % 4 == 0 and stat["uptime"] > HUNG_AFTER_SECONDS:  # once a minute
+            answered = ping(meta.get("port", 25565)) is not None
+            _watch["hung"][sid] = 0 if answered else _watch["hung"].get(sid, 0) + 1
+            if _watch["hung"][sid] >= HUNG_CHECKS and _alert_due(f"{sid}|hung", 3600, now):
+                audit("system", "server not answering", server=sid)
+                notify("server_hung", f"The process is running but port {meta.get('port', 25565)} has not answered for {HUNG_CHECKS} minutes.", sid)
+    if tick % 40 == 0:  # every ten minutes
+        free = free_mb()["free_mb"]
+        if free is not None and free < LOW_DISK_MB and _alert_due("disk", 86400, now):
+            notify("disk_low", f"Only {free // 1024} GB left on the drive that holds the servers and backups.")
+
+
 def scheduler_loop():
+    tick = 0
     while True:
         time.sleep(SCHEDULER_TICK)
+        tick += 1
         try:
             scheduler_tick()
+            run_watchers(tick)
         except Exception as exc:
             print("Scheduler error:", exc)
 

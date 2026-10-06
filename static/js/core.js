@@ -45,6 +45,8 @@ let summaryKey = "";
 
 let consoleLineCount = 0;
 let currentServerRam = 2048;
+let currentServerPort = 25565;
+let knownServers = [];
 
 const IS_OWNER = document.body.dataset.role === "owner";
 const PERMISSIONS = (document.body.dataset.perms || "").split(" ").filter(Boolean);
@@ -57,7 +59,8 @@ function can(permission) {
 
 const OWNER_WATERMARK = "MC-SERVER-MANAGER / Mrkraps aka orgeco";
 
-const defaultSettings = { theme: "control", font: "dm", accent: "lime", density: "comfortable", motion: true, confirmActions: true, autoRefresh: true, refreshInterval: "30", autoPing: true, pingInterval: "5", consoleAutoRefresh: true, backdrop3d: true };
+const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+const defaultSettings = { theme: "control", font: "dm", accent: "lime", density: "comfortable", motion: !prefersReducedMotion, confirmActions: true, autoRefresh: true, refreshInterval: "30", autoPing: true, pingInterval: "5", consoleAutoRefresh: true, backdrop3d: true };
 
 function getSettings() {
   try { return { ...defaultSettings, ...JSON.parse(localStorage.getItem("mc-manager-settings") || "{}") }; }
@@ -67,7 +70,9 @@ function getSettings() {
 function applySettings() {
   const settings = getSettings();
   document.body.dataset.accent = settings.accent;
-  document.body.dataset.theme = settings.theme;
+  document.body.dataset.theme = settings.theme === "auto"
+    ? (window.matchMedia?.("(prefers-color-scheme: light)").matches ? "light" : "control")
+    : settings.theme;
   document.body.dataset.font = settings.font;
   document.body.classList.toggle("density-compact", settings.density === "compact");
   document.body.classList.toggle("reduced-motion", !settings.motion);
@@ -295,3 +300,79 @@ function tickLiveClock() {
   const el = document.getElementById("live-clock");
   if (el) el.textContent = new Date().toLocaleTimeString([], { hour12: false });
 }
+
+
+// ----- sidebar, title, shortcuts -----
+
+function toggleSidebar(force) {
+  const collapsed = force ?? !document.body.classList.contains("sidebar-collapsed");
+  document.body.classList.toggle("sidebar-collapsed", collapsed);
+  const button = document.querySelector(".sidebar-toggle");
+  if (button) {
+    button.setAttribute("aria-label", collapsed ? "Expand sidebar" : "Collapse sidebar");
+    button.title = collapsed ? "Expand sidebar" : "Collapse sidebar";
+  }
+  try { localStorage.setItem("mc-manager-sidebar", collapsed ? "1" : "0"); } catch {}
+}
+
+function restoreSidebar() {
+  try { if (localStorage.getItem("mc-manager-sidebar") === "1") toggleSidebar(true); } catch {}
+}
+
+// Browser tab title and icon show whether anything is running, so a pinned tab is useful at a glance.
+function updateTitle(online) {
+  document.title = `${online ? `(${online} online) ` : ""}MC Server Manager v2`;
+  let icon = document.getElementById("favicon");
+  if (!icon) {
+    icon = document.createElement("link");
+    icon.id = "favicon";
+    icon.rel = "icon";
+    document.head.appendChild(icon);
+  }
+  const color = online ? "%23a3e635" : "%239ca3af";
+  icon.href = `data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23131316'/><rect x='7' y='7' width='18' height='18' rx='4' fill='${color}'/></svg>`;
+}
+
+function openShortcuts() {
+  document.getElementById("shortcuts-dialog").showModal();
+}
+
+const TAB_KEYS = { s: "servers", c: "create", m: "map", p: "browser", t: "settings" };
+let pendingGo = 0;
+
+function typingInField(event) {
+  const el = event.target;
+  return el instanceof HTMLElement && (el.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName));
+}
+
+document.addEventListener("keydown", event => {
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+    event.preventDefault();
+    openPalette();
+    return;
+  }
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s" && document.getElementById("fs-editor")?.style.display === "block") {
+    event.preventDefault();
+    fsSave();
+    return;
+  }
+  if (typingInField(event) || event.ctrlKey || event.metaKey || event.altKey || document.querySelector("dialog[open]")) return;
+  if (Date.now() < pendingGo && TAB_KEYS[event.key]) {
+    pendingGo = 0;
+    const tab = TAB_KEYS[event.key];
+    const target = document.getElementById(`tab-${tab}`);
+    if (target && !(tab === "create" && !can("manage"))) switchTab(tab);
+    return;
+  }
+  if (event.key === "g") { pendingGo = Date.now() + 1200; return; }
+  if (event.key === "/") {
+    const search = document.getElementById("server-search");
+    if (search && document.getElementById("tab-servers").classList.contains("active")) { event.preventDefault(); search.focus(); }
+  } else if (event.key === "?") {
+    openShortcuts();
+  } else if (event.key === "[") {
+    toggleSidebar();
+  }
+});
+
+window.matchMedia?.("(prefers-color-scheme: light)").addEventListener?.("change", () => { if (getSettings().theme === "auto") applySettings(); });

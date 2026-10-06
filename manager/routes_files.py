@@ -13,6 +13,8 @@ from .state import update_cache
 from .store import get_server_path, load_meta, save_meta
 from .util import DOWNLOAD_FOLDERS, has_line_break, is_trusted_download, safe_path
 
+MAX_EDIT_BYTES = 2 * 1024 * 1024
+
 @app.route("/api/server/<sid>/fs/list")
 def api_fs_list(sid):
     rel = request.args.get("path", "").lstrip("/")
@@ -62,6 +64,8 @@ def api_fs_write(sid):
         return jsonify({"ok": False, "error": "Invalid path"}), 400
     if is_private(target):
         return jsonify({"ok": False, "error": "Only the owner can change this file"}), 403
+    if not isinstance(content, str) or len(content.encode("utf-8")) > MAX_EDIT_BYTES:
+        return jsonify({"ok": False, "error": "Files over 2 MB cannot be edited here. Upload them instead."}), 413
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(content, encoding="utf-8")
     return jsonify({"ok": True})
@@ -234,9 +238,73 @@ def api_files(sid):
         return jsonify([])
     files = []
     for f in path.iterdir():
-        if f.is_file() and f.suffix.lower() == ".jar":
-            files.append({"name": f.name, "size": f.stat().st_size, "modified": datetime.fromtimestamp(f.stat().st_mtime).isoformat()})
-    return jsonify(files)
+        lowered = f.name.lower()
+        if f.is_file() and (lowered.endswith(".jar") or lowered.endswith(".jar.disabled")):
+            files.append({"name": f.name, "size": f.stat().st_size, "enabled": lowered.endswith(".jar"),
+                          "modified": datetime.fromtimestamp(f.stat().st_mtime).isoformat()})
+    return jsonify(sorted(files, key=lambda item: item["name"].lower()))
+
+def plugin_file(sid, data):
+    """Resolves {folder, name} from a request to an existing .jar or .jar.disabled, or returns (None, error)."""
+    folder, name = data.get("folder"), str(data.get("name") or "")
+    if folder not in DOWNLOAD_FOLDERS or name != secure_filename(name) or not name.lower().endswith((".jar", ".jar.disabled")):
+        return None, "Unknown plugin file"
+    target = get_server_path(sid) / folder / name
+    return (target, None) if target.is_file() else (None, "That file no longer exists")
+
+@app.route("/api/server/<sid>/plugins/toggle", methods=["POST"])
+def api_plugin_toggle(sid):
+    """Disables a plugin or mod without deleting it, by renaming x.jar to x.jar.disabled (and back)."""
+    data = request.get_json(silent=True) or {}
+    target, problem = plugin_file(sid, data)
+    if problem:
+        return jsonify({"ok": False, "error": problem}), 400
+    enabled = bool(data.get("enabled"))
+    if enabled and target.name.lower().endswith(".jar.disabled"):
+        new = target.with_name(target.name[:-len(".disabled")])
+    elif not enabled and target.name.lower().endswith(".jar"):
+        new = target.with_name(target.name + ".disabled")
+    else:
+        return jsonify({"ok": True, "name": target.name})
+    if new.exists():
+        return jsonify({"ok": False, "error": f"{new.name} already exists"}), 409
+    try:
+        target.rename(new)
+    except OSError as exc:
+        return jsonify({"ok": False, "error": f"Could not rename (is the server running?): {exc}"}), 409
+    return jsonify({"ok": True, "name": new.name})
+
+@app.route("/api/server/<sid>/plugins/delete", methods=["POST"])
+def api_plugin_delete(sid):
+    target, problem = plugin_file(sid, request.get_json(silent=True) or {})
+    if problem:
+        return jsonify({"ok": False, "error": problem}), 400
+    try:
+        target.unlink()
+    except OSError as exc:
+        return jsonify({"ok": False, "error": f"Could not delete (is the server running?): {exc}"}), 409
+    return jsonify({"ok": True})
+
+@app.route("/api/server/<sid>/fs/rename", methods=["POST"])
+def api_fs_rename(sid):
+    data = request.get_json(silent=True) or {}
+    rel = (data.get("path") or "").lstrip("/")
+    new_name = str(data.get("name") or "")
+    target = safe_path(sid, rel)
+    if target is None or not target.exists() or not rel:
+        return jsonify({"ok": False, "error": "Not found"}), 404
+    if is_private(target) or target.name == "manager_meta.json":
+        return jsonify({"ok": False, "error": "This file cannot be renamed"}), 403
+    if not new_name or new_name in (".", "..") or any(ch in new_name for ch in '/\\:*?"<>|') or len(new_name) > 120:
+        return jsonify({"ok": False, "error": "Use a plain file name without slashes or special characters"}), 400
+    destination = target.with_name(new_name)
+    if destination.exists():
+        return jsonify({"ok": False, "error": f"{new_name} already exists"}), 409
+    try:
+        target.rename(destination)
+    except OSError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 409
+    return jsonify({"ok": True, "name": new_name})
 
 @app.route("/api/server/<sid>/plugin-configs")
 def api_plugin_configs(sid):

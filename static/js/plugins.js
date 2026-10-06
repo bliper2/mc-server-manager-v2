@@ -1,16 +1,50 @@
 // Installed plugins and mods, Modrinth browser and plugin update checker.
 
+function pluginRows(list, folder) {
+  if (!list.length) return '<div class="empty" style="padding:0.4rem">None found</div>';
+  return list.map(file => `<div class="item plugin-row${file.enabled ? "" : " is-off"}">
+      <span class="plugin-name" title="${escapeHtml(file.name)}">${escapeHtml(file.name.replace(/\.disabled$/, ""))}${file.enabled ? "" : ' <em>disabled</em>'}</span>
+      <span class="plugin-size">${formatBytes(file.size)}</span>
+      <label class="setting-switch" data-perm="files" title="${file.enabled ? "Disable" : "Enable"} (applies after a restart)"><input type="checkbox" ${file.enabled ? "checked" : ""} onchange="togglePlugin(${jsArg(folder)}, ${jsArg(file.name)}, this.checked)" aria-label="Enabled" /><span></span></label>
+      <button class="btn danger small" data-perm="files" onclick="deletePlugin(${jsArg(folder)}, ${jsArg(file.name)})" aria-label="Delete ${escapeHtml(file.name)}">✕</button>
+    </div>`).join("");
+}
+
 async function loadPluginMods() {
   if (!currentServerId) return;
   const [plugins, mods] = await Promise.all([
     (await fetch(`/api/server/${currentServerId}/files?folder=plugins`)).json(),
     (await fetch(`/api/server/${currentServerId}/files?folder=mods`)).json()
   ]);
-  const fmt = list => list.length
-    ? list.map(f => `<div class="item"><span>${escapeHtml(f.name)}</span><span>${(f.size/1024).toFixed(0)} KB</span></div>`).join("")
-    : '<div class="empty" style="padding:0.4rem">None found</div>';
-  document.getElementById("plugins-list").innerHTML = fmt(plugins);
-  document.getElementById("mods-list").innerHTML = fmt(mods);
+  document.getElementById("plugins-list").innerHTML = pluginRows(plugins, "plugins");
+  document.getElementById("mods-list").innerHTML = pluginRows(mods, "mods");
+}
+
+async function togglePlugin(folder, name, enabled) {
+  try {
+    const data = await requestJson(`/api/server/${currentServerId}/plugins/toggle`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ folder, name, enabled })
+    });
+    if (!data.ok) throw new Error(data.error);
+    showToast(`${enabled ? "Enabled" : "Disabled"} ${name.replace(/\.disabled$/, "")}. Restart the server to apply.`, "success");
+  } catch (error) {
+    showToast(error.message, "error");
+  }
+  loadPluginMods();
+}
+
+async function deletePlugin(folder, name) {
+  if (!(await uiConfirm(`Delete ${name.replace(/\.disabled$/, "")}? Its configuration folder is kept.`, { title: "Delete plugin", confirmText: "Delete", danger: true, always: true }))) return;
+  try {
+    const data = await requestJson(`/api/server/${currentServerId}/plugins/delete`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ folder, name })
+    });
+    if (!data.ok) throw new Error(data.error);
+    showToast("Deleted", "success");
+  } catch (error) {
+    showToast(error.message, "error");
+  }
+  loadPluginMods();
 }
 
 let lastUpdateItems = [];

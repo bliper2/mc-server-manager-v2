@@ -1,6 +1,7 @@
 // Owner-only staff panel.
 
 let permissionCatalog = [];
+let auditEntries = [];
 
 function permissionBoxes(selected, attrs = "") {
   return permissionCatalog.map(perm =>
@@ -27,7 +28,7 @@ async function loadStaff() {
         <span class="user-avatar ${account.role}" aria-hidden="true">${escapeHtml(account.username[0].toUpperCase())}</span>
         <div class="staff-meta">
           <strong>${escapeHtml(account.username)}</strong>
-          <small>Last sign-in ${relativeTime(account.last_login)} · added ${new Date(account.created).toLocaleDateString()}</small>
+          <small>${activeNow(account.last_seen) ? '<span class="active-now">Active now</span> · ' : ""}Last sign-in ${relativeTime(account.last_login)} · added ${new Date(account.created).toLocaleDateString()}</small>
         </div>
         ${account.totp_enabled ? '<span class="badge online" title="Signs in with an authenticator code">2FA</span>' : '<span class="badge offline" title="Password only">No 2FA</span>'}
         <span class="badge ${account.role === "owner" ? "online" : "type"}">${account.role === "owner" ? "OWNER" : "STAFF"}</span>
@@ -39,14 +40,24 @@ async function loadStaff() {
         <div class="staff-perms" data-user="${escapeHtml(account.username)}">${permissionBoxes(account.permissions, `onchange="saveStaffPermissions(${jsArg(account.username)})"`)}</div>` : '<div class="staff-perms muted">Full access to everything</div>'}
       </div>`;
     }).join("");
-    const audit = document.getElementById("staff-audit");
-    audit.innerHTML = data.audit.length ? data.audit.map(entry => {
-      const extra = entry.target || entry.ip || (entry.server ? `server ${entry.server}` : "") || (entry.status ? `HTTP ${entry.status}` : "");
-      return `<div class="audit-row"><time>${new Date(entry.at).toLocaleString()}</time><strong>${escapeHtml(entry.user)}</strong><span>${escapeHtml(entry.action)}</span><small>${escapeHtml(extra)}</small></div>`;
-    }).join("") : '<div class="empty">No activity yet</div>';
+    auditEntries = data.audit;
+    renderAudit();
   } catch (error) {
     list.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
   }
+}
+
+function activeNow(iso) {
+  return Boolean(iso) && Date.now() - new Date(iso).getTime() < 2 * 60 * 1000;
+}
+
+function renderAudit() {
+  const query = (document.getElementById("audit-filter")?.value || "").trim().toLowerCase();
+  const rows = auditEntries.filter(entry => !query || `${entry.user} ${entry.action} ${entry.target || ""} ${entry.server || ""}`.toLowerCase().includes(query));
+  document.getElementById("staff-audit").innerHTML = rows.length ? rows.map(entry => {
+    const extra = entry.target || entry.ip || (entry.server ? `server ${entry.server}` : "") || (entry.status ? `HTTP ${entry.status}` : "");
+    return `<div class="audit-row"><time>${new Date(entry.at).toLocaleString()}</time><strong>${escapeHtml(entry.user)}</strong><span>${escapeHtml(entry.action)}</span><small>${escapeHtml(extra)}</small></div>`;
+  }).join("") : '<div class="empty">No matching activity</div>';
 }
 
 async function createStaff(event) {

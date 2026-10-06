@@ -26,6 +26,7 @@ async function openServer(id) {
     return;
   }
   currentServerRam = Number(s.ram) || 2048;
+  currentServerPort = Number(s.port) || 25565;
   updateDetailStats(null);
   document.getElementById("detail-title").textContent = s.name;
   renderDetailLogo(s);
@@ -318,16 +319,79 @@ async function loadPlayers() {
     (await fetch(`/api/server/${currentServerId}/active-players`)).json()
   ]);
   renderActivePlayers(activeData.players || data.active || []);
-  const fmt = list => {
+  const fmt = (list, action, label) => {
     if (!list?.length) return '<div class="empty" style="padding:0.4rem">Empty</div>';
     return list.map(p => {
       const name = p.name || p.uuid || JSON.stringify(p);
-      return `<div class="item"><span>${escapeHtml(name)}</span></div>`;
+      return `<div class="item"><span>${escapeHtml(name)}</span>${p.name ? `<button class="mini-btn" data-perm="console" onclick="playerActionFor(${jsArg(action)}, ${jsArg(p.name)})">${label}</button>` : ""}</div>`;
     }).join("");
   };
-  document.getElementById("ops-list").innerHTML = fmt(data.ops);
-  document.getElementById("wl-list").innerHTML = fmt(data.whitelist);
-  document.getElementById("ban-list").innerHTML = fmt(data.banned);
+  document.getElementById("ops-list").innerHTML = fmt(data.ops, "deop", "DeOP");
+  document.getElementById("wl-list").innerHTML = fmt(data.whitelist, "whitelist_remove", "Remove");
+  document.getElementById("ban-list").innerHTML = fmt(data.banned, "pardon", "Pardon");
+  loadPlaytime();
+}
+
+function playerActionFor(action, name) {
+  document.getElementById("player-name").value = name;
+  playerAction(action);
+}
+
+async function loadPlaytime() {
+  const list = document.getElementById("playtime-list");
+  try {
+    const data = await requestJson(`/api/server/${currentServerId}/playtime`);
+    const top = data.players[0]?.seconds || 1;
+    list.innerHTML = data.players.length ? data.players.map((player, i) => `
+      <div class="playtime-row">
+        <span class="rank">${i + 1}</span>
+        <strong>${escapeHtml(player.name)}${player.online ? ' <i class="status-dot online"></i>' : ""}</strong>
+        <i class="bar"><b style="width:${Math.max(3, player.seconds / top * 100)}%"></b></i>
+        <span class="time">${formatUptime(player.seconds)}</span>
+        <small>${player.sessions || 0} session${player.sessions === 1 ? "" : "s"}</small>
+      </div>`).join("") : '<div class="empty">No sessions recorded yet</div>';
+  } catch { /* shown again next time the tab opens */ }
+}
+
+async function renameServer() {
+  const current = document.getElementById("detail-title").textContent;
+  const name = await uiAsk({ title: "Rename server", confirmText: "Rename", input: { value: current, required: true } });
+  if (!name || name === current) return;
+  try {
+    const data = await requestJson(`/api/server/${currentServerId}/rename`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name })
+    });
+    if (!data.ok) throw new Error(data.error);
+    document.getElementById("detail-title").textContent = data.name;
+    serversHtml = "";
+    showToast("Renamed", "success");
+  } catch (error) {
+    showToast(error.message, "error");
+  }
+}
+
+async function cloneServer(button) {
+  const current = document.getElementById("detail-title").textContent;
+  const name = await uiAsk({ title: "Duplicate server", message: "Copies the world, plugins and settings. The copy gets its own port, no Playit secret and RCON off. The original must be stopped.", confirmText: "Duplicate", input: { value: `${current} (copy)`, required: true } });
+  if (!name) return;
+  await withBusy(button, async () => {
+    try {
+      const data = await requestJson(`/api/server/${currentServerId}/clone`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name })
+      });
+      if (!data.ok) throw new Error(data.error);
+      showToast(`Created "${data.name}" on port ${data.port}`, "success");
+      currentServerId = null;
+      stopConsolePolling();
+      switchTab("servers");
+    } catch (error) {
+      showToast(error.message, "error");
+    }
+  });
+}
+
+function copyAddress() {
+  copyText(`localhost:${currentServerPort}`);
 }
 
 function renderActivePlayers(players) {

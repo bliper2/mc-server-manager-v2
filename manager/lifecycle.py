@@ -21,7 +21,9 @@ from .state import playit_processes, restart_flags, running_servers
 from .store import audit, is_running, load_meta
 
 BOOT_ID = secrets.token_hex(6)
+STARTED_AT = time.time()
 WATCHED_SUFFIXES = (".py", ".html", ".css", ".js")
+_source_cache: dict = {}
 
 
 def supervised() -> bool:
@@ -33,6 +35,9 @@ def source_version():
     """Newest modification time of the code and UI files. Only computed in dev mode, where files change under us."""
     if not DEV_MODE:
         return None
+    cached = _source_cache.get("value")
+    if cached and time.time() - cached[0] < 1.5:
+        return cached[1]
     newest = 0
     for folder in ("manager", "templates", "static"):
         for path in (BASE_DIR / folder).rglob("*"):
@@ -45,6 +50,7 @@ def source_version():
         newest = max(newest, (BASE_DIR / "app.py").stat().st_mtime_ns)
     except OSError:
         pass
+    _source_cache["value"] = (time.time(), newest)
     return newest
 
 
@@ -65,6 +71,20 @@ def _shutdown_and_exit(resume: list):
     sys.stderr.flush()
     os._exit(RESTART_EXIT_CODE)
 
+
+def shutdown_servers():
+    """Registered with atexit in normal mode: Ctrl+C or closing the terminal saves and stops servers instead of orphaning them."""
+    running = running_server_ids()
+    if not running:
+        return
+    print(f"Stopping {len(running)} server(s) safely...", flush=True)
+    threads = [threading.Thread(target=stop_server, args=(sid, False)) for sid in running]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=60)
+    for sid in list(playit_processes):
+        stop_playit(sid)
 
 def begin_restart(by: str, reason: str = "restart") -> list:
     """Stop servers safely, remember which were running, then exit so the supervisor relaunches us.

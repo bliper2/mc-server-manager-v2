@@ -26,6 +26,9 @@ EVENTS = {
     "manager_update": ("Manager updated", BLUE, True),
     "security": ("Security alert", RED, True),
     "staff_change": ("Staff change", AMBER, True),
+    "resource_alert": ("High resource use", AMBER, True),
+    "server_hung": ("Server not responding", RED, True),
+    "disk_low": ("Disk space low", RED, True),
 }
 EVENT_LABELS = {
     "server_start": "Server starts",
@@ -39,6 +42,9 @@ EVENT_LABELS = {
     "manager_update": "Manager updated",
     "security": "Lockouts and failed sign-ins",
     "staff_change": "Staff accounts changed",
+    "resource_alert": "Sustained high CPU or memory",
+    "server_hung": "Server running but not answering",
+    "disk_low": "Low disk space",
 }
 WEBHOOK_HOSTS = {"discord.com", "discordapp.com", "ptb.discord.com", "canary.discord.com"}
 MIN_INTERVAL = 1.2

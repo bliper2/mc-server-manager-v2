@@ -63,6 +63,7 @@ async function saveAutomation(button) {
 
 async function loadActivity() {
   if (!currentServerId) return;
+  loadCrashReports();
   const list = document.getElementById("server-activity");
   try {
     const data = await requestJson(`/api/server/${currentServerId}/activity`);
@@ -71,6 +72,18 @@ async function loadActivity() {
       const extra = entry.exit_code !== undefined ? `exit code ${entry.exit_code}` : (entry.status ? `HTTP ${entry.status}` : "");
       return `<div class="audit-row"><time>${new Date(entry.at).toLocaleString()}</time><strong>${escapeHtml(entry.user)}</strong><span>${escapeHtml(action)}</span><small>${escapeHtml(extra)}</small></div>`;
     }).join("") : '<div class="empty">Nothing has been done on this server yet</div>';
+  } catch (error) {
+    list.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
+  }
+}
+
+async function loadCrashReports() {
+  if (!currentServerId) return;
+  const list = document.getElementById("crash-list");
+  try {
+    const data = await requestJson(`/api/server/${currentServerId}/crash-reports`);
+    list.innerHTML = data.reports.length ? data.reports.map(report => `
+      <div class="audit-row"><time>${new Date(report.modified).toLocaleString()}</time><strong>${escapeHtml(report.name)}</strong><span>${formatBytes(report.size)}</span><small><button class="mini-btn" onclick="fsOpenPath(${jsArg(report.path)})">Open</button></small></div>`).join("") : '<div class="empty">No crash reports. That is good.</div>';
   } catch (error) {
     list.innerHTML = `<div class="empty">${escapeHtml(error.message)}</div>`;
   }

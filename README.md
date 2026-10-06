@@ -140,11 +140,31 @@ Every open browser tab notices the restart (or, in development mode, a changed s
 Point `MC_MANAGER_REPO` at another `owner/name` to follow a fork. A copy cloned with git knows its version from
 `git rev-parse HEAD` until the first update.
 
+## Everyday tools
+
+- **Ctrl+K** opens a palette to jump to any page or server. **?** lists every keyboard shortcut (`g` then `s`/`c`/`m`/`p`/`t` to switch pages, `/` to search servers, `[` to collapse the sidebar, Ctrl+S to save a file).
+- **Server list:** search, sort (newest, name, running first, port), live player counts, CPU and memory.
+- **Server page:** rename or duplicate a server (the copy gets its own port, no Playit secret and RCON off), copy its address, and see who has been online the longest under **Players**.
+- **Launch settings** (Properties tab): memory per server and a Java flags preset (*Default*, *Optimized* using Aikar's G1GC flags, or *Custom*). Custom flags are limited to plain `-X`, `-XX` and `-D` options.
+- **Console:** filter by text or level, jump to latest, `Tab` to complete commands, arrow keys for history, quick-command chips, text size, copy, and **History** to load earlier lines from `logs/latest.log`.
+- **Files:** breadcrumb path, rename, new file, multi-file upload, an unsaved-changes marker, and crash reports under the **Activity** tab.
+- **Plugins and mods:** switch one off without deleting it (it becomes `.jar.disabled`) or delete it.
+- **Properties:** every known key has a description and the right kind of input, with a filter box.
+- **EULA:** creating a server needs a tick on "I accept the Minecraft EULA".
+
+## Health, diagnostics and alerts
+
+- `GET /api/health` is public and returns only `{ok, version, uptime}`, for uptime monitors.
+- **Settings > Diagnostics** (owner) lists versions, Java, disk space, uptime and update state, with a copy button for bug reports. **Manager log** shows `manager.log` (rotated at 1 MB, three kept).
+- Quiet watchers tell Discord when a server stays above 90% CPU or 92% of its memory for two minutes, when a running server stops answering for five minutes, and when the drive has under 5 GB free.
+- Closing the terminal or pressing Ctrl+C in normal mode saves and stops running servers instead of leaving them orphaned (development mode leaves them running so reloads do not interrupt them).
+- Responses are gzip-compressed, static files are cached for a year under a versioned URL, and every page carries a Content-Security-Policy and the usual security headers. The session cookie is marked Secure when the page is reached over HTTPS.
+
 ## Notifications (Discord)
 
 Settings > Discord notifications (owner only). Paste a channel webhook (Channel settings > Integrations >
 Webhooks) and choose what to hear about: server start, stop, crash and automatic restart, backups, manager
-updates, lockouts and failed sign-ins, staff changes, and optionally players joining or leaving. The URL is stored
+updates, lockouts and failed sign-ins, staff changes, resource, hang and disk alerts, and optionally players joining or leaving. The URL is stored
 in `manager_settings.json`, is never sent back to the browser, and is not overwritten by updates.
 
 ## Server automation
@@ -180,7 +200,7 @@ off) whenever other people can reach the panel.
 python -m unittest discover -s tests -t .
 ```
 
-The tests run against a temporary data folder (`MC_MANAGER_HOME`), so they never touch your servers or accounts.
+GitHub Actions runs them on Windows and Linux for every push. The tests run against a temporary data folder (`MC_MANAGER_HOME`), so they never touch your servers or accounts.
 They cover sign-in, lockout, two-factor, permissions (including a check that every state-changing route has been
 classified), path and input safety, console offsets, restore safety, Java rules, crash recovery, scheduling,
 notifications, updates and the restart flow.
@@ -198,17 +218,19 @@ manager/                   Application code (Flask routes register themselves on
   backups.py  providers.py   Backups; jar downloads and the Modrinth client
   rconmap.py                 RCON client, live map, markers
   updater.py  lifecycle.py   Self-update; restarting the manager
-  routes_servers.py  routes_files.py  automation.py   HTTP routes and background jobs
+  routes_servers.py  routes_files.py  servertools.py  automation.py   HTTP routes and background jobs
+  ops.py  web.py             Health, diagnostics, log, disk; security headers, gzip, caching
 tests/                     Unit tests (python -m unittest discover -s tests -t .)
 templates/                 index.html (the panel) and login.html
 static/css/themes.css      One colour block per theme
 static/css/app.css         All other styles
 static/js/                 core, servers, detail, console, files, backups, plugins, settings, staff,
-                           automation, boot, main (plus map.js and scene.js)
+                           automation, palette, boot, main (plus map.js and scene.js)
 static/vendor/             Bundled Leaflet and three.js (no CDN, works offline)
 mock_rcon.py               Fake RCON server with simulated players for development
 servers/  backups/         Your data (git-ignored)
-staff.json  .secret_key  audit.jsonl  manager_settings.json  update_state.json   Local state (git-ignored)
+staff.json  .secret_key  audit.jsonl  manager_settings.json  manager.log  update_state.json   Local state (git-ignored)
+ROADMAP.md                 What shipped and the 88 ideas still on the list
 setup.bat  start.bat  start-shared.bat   Windows setup and launchers
 ```
 
@@ -221,8 +243,9 @@ The panel needs a sign-in. There is one **owner** and room for **two staff**, so
 - **First run:** open `http://127.0.0.1:5000` on the PC that runs the manager and create the owner account. Setup is refused from any other address, including through Tailscale, so nobody else can claim the panel first.
 - **Staff panel** (owner only): add, reset or remove the two staff accounts, choose what each may do, reset their two-factor, and read the activity log. Removing an account or resetting its password signs that person out immediately.
 - **Permissions:** everyone can look at everything. Staff can only change what the owner allows: *start, stop and restart*, *console and moderation*, *files, properties and plugins*, *backups*, and *create, import and delete servers*. Only the owner manages accounts, updates, Discord and Java installs.
-- **Passwords** are never stored. Only salted scrypt hashes go into `staff.json`. Passwords must be 8+ characters; five wrong attempts lock that username and address for five minutes.
+- **Passwords** are never stored. Only salted scrypt hashes go into `staff.json`. Passwords must be 8+ characters and not an obvious one (`password123`, `minecraft`...); five wrong attempts lock that username and address for five minutes.
 - **Two-factor sign-in** (Settings > Two-factor sign-in): works with any authenticator app. It asks for a 6-digit code after the password; each code works once, and eight one-time recovery codes are shown when you turn it on. The TOTP secret is stored in `staff.json`, so keep that file private. Turning it off needs your password and a code.
+- **Sign out everywhere else** (Settings > Your account) ends every other session of your account. The Staff panel shows who is active right now and exports the activity log as CSV.
 - **Forgot the owner password:** stop the manager, delete `staff.json`, start it again, and create the owner from the host PC. Servers and backups are untouched.
 - `manager_meta.json` (it holds the Playit secret) can only be opened by the owner; RCON passwords never leave the server.
 

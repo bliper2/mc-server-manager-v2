@@ -22,3 +22,8 @@ crash_times = {}
 # True after a manager update has been installed but the new code is not running yet.
 restart_flags = {"pending": False, "auto": False}
 java_install = {"state": "idle", "message": "", "log": []}
+
+# server id -> {player name: join timestamp}, for playtime
+joined_at = {}
+# server id -> lock, so two clicks cannot start the same server twice
+start_locks = {}

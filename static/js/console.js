@@ -260,3 +260,55 @@ function initConsoleControls() {
     if (option) { event.preventDefault(); acceptSuggestion(Number(option.dataset.index)); }
   });
 }
+
+// ----- extra console tools -----
+
+function applyConsoleScale() {
+  const scale = Number(getSettings().consoleScale) || 1;
+  document.documentElement.style.setProperty("--console-scale", scale);
+}
+
+function changeConsoleFont(direction) {
+  const settings = getSettings();
+  settings.consoleScale = Math.max(0.8, Math.min(1.7, Math.round(((Number(settings.consoleScale) || 1) + direction * 0.1) * 10) / 10));
+  try { localStorage.setItem("mc-manager-settings", JSON.stringify(settings)); } catch {}
+  applyConsoleScale();
+}
+
+async function copyConsole() {
+  const visible = consoleBuffer.filter(consoleLineVisible).map(entry => entry.text).join("\n");
+  if (!visible) { showToast("Nothing to copy", "warning"); return; }
+  await copyText(visible);
+}
+
+async function loadConsoleHistory() {
+  if (!currentServerId) return;
+  try {
+    const data = await requestJson(`/api/server/${currentServerId}/logs/latest?lines=500`);
+    const first = consoleBuffer[0]?.text;
+    const cut = first ? data.lines.lastIndexOf(first) : -1;
+    const older = cut >= 0 ? data.lines.slice(0, cut) : data.lines;
+    if (!older.length) { showToast("No earlier lines on disk", "warning"); return; }
+    const out = document.getElementById("console-output");
+    const current = [...consoleBuffer];
+    clearConsole();
+    appendConsoleLines(out, older);
+    appendConsoleLines(out, current.map(entry => entry.text));
+    out.scrollTop = 0;
+    showToast(`Loaded ${older.length} earlier lines from logs/latest.log`, "success");
+  } catch (error) {
+    showToast(error.message, "error");
+  }
+}
+
+async function quickCommand(command) {
+  if (!currentServerId) return;
+  try {
+    const data = await (await fetch(`/api/server/${currentServerId}/command`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ command })
+    })).json();
+    if (!data.ok) showToast(data.error || data.message || "Command was not sent", "error");
+  } catch (error) {
+    showToast(error.message, "error");
+  }
+}

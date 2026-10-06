@@ -40,7 +40,7 @@ class PathAndInputSafety(AppTestCase):
 
     def test_port_collision_is_refused(self):
         make_server("a_1", name="First", port=25570)
-        reply = self.owner().post("/api/create", json={"name": "Second", "version": "1.21.1", "port": 25570})
+        reply = self.owner().post("/api/create", json={"name": "Second", "version": "1.21.1", "port": 25570, "accept_eula": True})
         self.assertEqual(reply.status_code, 409)
         self.assertIn("First", reply.get_json()["error"])
 

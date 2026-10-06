@@ -100,3 +100,28 @@ def save_settings(settings: dict):
         temp = SETTINGS_FILE.with_suffix(".tmp")
         temp.write_text(json.dumps(settings, indent=2), encoding="utf-8")
         temp.replace(SETTINGS_FILE)
+
+def playtime_file(server_id: str) -> Path:
+    return get_server_path(server_id) / "manager_playtime.json"
+
+def load_playtime(server_id: str) -> dict:
+    try:
+        data = json.loads(playtime_file(server_id).read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+def add_playtime(server_id: str, player: str, seconds: float):
+    """Adds one finished session to a player's total. Sessions under five seconds (reconnect flaps) are ignored."""
+    if seconds < 5 or not get_server_path(server_id).is_dir():
+        return
+    with audit_lock:
+        data = load_playtime(server_id)
+        entry = data.get(player) or {"seconds": 0, "sessions": 0}
+        entry["seconds"] = int(entry["seconds"] + seconds)
+        entry["sessions"] = int(entry["sessions"]) + 1
+        entry["last_seen"] = datetime.now().isoformat(timespec="seconds")
+        data[player] = entry
+        temp = playtime_file(server_id).with_suffix(".tmp")
+        temp.write_text(json.dumps(data), encoding="utf-8")
+        temp.replace(playtime_file(server_id))

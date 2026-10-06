@@ -23,6 +23,7 @@ def safe_path(server_id: str, rel: str):
     return target
 
 SERVER_ID_PATTERN = re.compile(r"[\w\-]{1,80}")
+PLAYER_NAME_PATTERN = re.compile(r"[A-Za-z0-9_.\-]{1,32}")  # Java names, plus the "." prefix Bedrock/Floodgate players get
 DOWNLOAD_FOLDERS = ("plugins", "mods")
 TRUSTED_DOWNLOAD_HOSTS = {"cdn.modrinth.com"}
 
@@ -94,3 +95,32 @@ def read_port_from_properties(path: Path) -> int:
             except ValueError:
                 break
     return 25565
+
+_size_cache: dict = {}
+
+def folder_size(path: Path, ttl: float = 300.0) -> int:
+    """Total bytes under `path`, cached for `ttl` seconds because worlds can hold hundreds of thousands of files."""
+    key = str(path)
+    cached = _size_cache.get(key)
+    if cached and time.time() - cached[0] < ttl:
+        return cached[1]
+    total = 0
+    stack = [str(path)]
+    while stack:
+        try:
+            with os.scandir(stack.pop()) as entries:
+                for entry in entries:
+                    try:
+                        if entry.is_dir(follow_symlinks=False):
+                            stack.append(entry.path)
+                        elif entry.is_file(follow_symlinks=False):
+                            total += entry.stat(follow_symlinks=False).st_size
+                    except OSError:
+                        continue
+        except OSError:
+            continue
+    _size_cache[key] = (time.time(), total)
+    return total
+
+def forget_size(path: Path):
+    _size_cache.pop(str(path), None)

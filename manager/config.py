@@ -3,7 +3,7 @@
 import os
 from pathlib import Path
 
-VERSION = "2.2.0"
+VERSION = "2.3.0"
 DEV_MODE = os.environ.get("MC_MANAGER_DEV", "1") == "1"
 # Exit code that tells the supervisor (app.py or the Werkzeug reloader) to start the manager again.
 RESTART_EXIT_CODE = 3
@@ -26,6 +26,7 @@ STAFF_FILE = DATA_DIR / "staff.json"
 AUDIT_FILE = DATA_DIR / "audit.jsonl"
 SETTINGS_FILE = DATA_DIR / "manager_settings.json"
 RESTART_STATE_FILE = DATA_DIR / "restart_state.json"
+LOG_FILE = DATA_DIR / "manager.log"
 
 IMPORT_SESSION_TTL = 6 * 3600
 IMPORT_BATCH_BYTES = 24 * 1024 * 1024
@@ -44,3 +45,19 @@ RCON_AUTH = 3
 RCON_COMMAND = 2
 RCON_TIMEOUT = 4
 MAP_CACHE_TTL = 0.9
+
+
+def _asset_stamp() -> int:
+    """Newest modification time (seconds) of the UI files, so a changed file always gets a new ?v= and is never served stale."""
+    newest = 0
+    for folder in ("static", "templates"):
+        for path in (BASE_DIR / folder).rglob("*"):
+            try:
+                if path.is_file():
+                    newest = max(newest, int(path.stat().st_mtime))
+            except OSError:
+                continue
+    return newest
+
+
+ASSET_VERSION = f"{VERSION}.{_asset_stamp()}"

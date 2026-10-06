@@ -21,3 +21,4 @@ backups/
 update_state.json
 manager_settings.json
 restart_state.json
+manager.log*

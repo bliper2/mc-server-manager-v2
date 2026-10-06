@@ -69,6 +69,23 @@ function animateCounts(root) {
   });
 }
 
+let serverQuery = "";
+let serverSort = "created";
+try {
+  const saved = JSON.parse(localStorage.getItem("mc-manager-list") || "{}");
+  serverSort = ["created", "name", "status", "port"].includes(saved.sort) ? saved.sort : "created";
+} catch {}
+
+function sortServers(list) {
+  const sorters = {
+    created: (a, b) => String(b.created || "").localeCompare(String(a.created || "")),
+    name: (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
+    status: (a, b) => Number(b.running) - Number(a.running) || a.name.localeCompare(b.name),
+    port: (a, b) => (Number(a.port) || 0) - (Number(b.port) || 0)
+  };
+  return [...list].sort(sorters[serverSort]);
+}
+
 function serverCardHtml(s, i) {
   const id = jsArg(s.id);
   const logo = s.logo?.file
@@ -88,6 +105,7 @@ function serverCardHtml(s, i) {
         </div>
         <div class="meta">
           <span class="badge type">${escapeHtml(s.type)} ${escapeHtml(s.version)}</span>
+          ${s.running && s.players ? `<span class="badge online" title="Players online">${s.players} online</span>` : ""}
           <span class="server-ping" data-ping-for="${escapeHtml(s.id)}">-- ms</span>
         </div>
         <div class="server-meta-grid">
@@ -116,16 +134,19 @@ async function loadServers() {
     if (!res.ok) throw new Error("Failed to load servers");
     const servers = await res.json();
     renderServerSummary(servers);
-    const filtered = servers.filter(s => {
-      if (serverFilter === "online") return s.running;
-      if (serverFilter === "offline") return !s.running;
-      return true;
-    });
+    knownServers = servers;
+    updateTitle(servers.filter(s => s.running).length);
+    const query = serverQuery.trim().toLowerCase();
+    const filtered = sortServers(servers.filter(s => {
+      if (serverFilter === "online" && !s.running) return false;
+      if (serverFilter === "offline" && s.running) return false;
+      return !query || `${s.name} ${s.type} ${s.version} ${s.port}`.toLowerCase().includes(query);
+    }));
     const html = filtered.length
       ? filtered.map(serverCardHtml).join("")
       : `<div class="empty-card dashed">
         <svg viewBox="0 0 16 16" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="12" height="4" rx="1"/><rect x="2" y="9" width="12" height="4" rx="1"/><circle cx="4.5" cy="5" r=".5" fill="currentColor" stroke="none"/><circle cx="4.5" cy="11" r=".5" fill="currentColor" stroke="none"/></svg>
-        <p>${servers.length ? "No servers match this filter." : "No servers yet."}</p>
+        <p>${servers.length ? "No servers match your search or filter." : "No servers yet."}</p>
         <button class="btn primary small" onclick="switchTab('create')"><span>+</span> New Server</button>
       </div>`;
     if (html !== serversHtml) {
@@ -364,7 +385,8 @@ async function createServer() {
     pvp: document.getElementById("create-pvp").checked,
     online_mode: document.getElementById("create-online-mode").checked,
     command_blocks: document.getElementById("create-command-blocks").checked,
-    whitelist: document.getElementById("create-whitelist").checked
+    whitelist: document.getElementById("create-whitelist").checked,
+    accept_eula: document.getElementById("create-eula").checked
   };
   const status = document.getElementById("create-status");
   const btn = document.getElementById("btn-create");
@@ -372,6 +394,12 @@ async function createServer() {
     status.className = "status-msg show err";
     status.textContent = "Give the server a name first";
     document.getElementById("create-name").focus();
+    return;
+  }
+  if (!options.accept_eula) {
+    status.className = "status-msg show err";
+    status.textContent = "Tick the box to accept the Minecraft EULA first";
+    document.getElementById("create-eula").focus();
     return;
   }
   if (!version) {
