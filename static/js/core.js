@@ -33,7 +33,7 @@ let detailPingInFlight = false;
 
 let consoleAutoRefresh = true;
 
-let createLogo = { mark: "MC", style: "avatar-lime" };
+let createLogo = { mark: "MC", style: "avatar-lime", library: "", libraryUrl: "" };
 
 let backupJobTimer = null;
 

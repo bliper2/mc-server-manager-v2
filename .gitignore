@@ -20,6 +20,7 @@ audit.jsonl
 backups/
 update_state.json
 manager_settings.json
+/logos/
 restart_state.json
 manager.log*
 

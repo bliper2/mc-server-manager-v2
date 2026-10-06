@@ -54,7 +54,9 @@ def harden_response(response):
     headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
     if response.mimetype == "text/html":
         headers.setdefault("Content-Security-Policy", CSP)
-    if request.path.startswith("/api/"):
+    if request.path.startswith("/api/logos/custom/") and request.method == "GET":
+        headers["Cache-Control"] = "private, max-age=86400"  # library logos are named after their content, so a name never changes meaning
+    elif request.path.startswith("/api/"):
         headers["Cache-Control"] = "no-store"
     elif request.path.startswith("/static/") and "v" in request.args and response.status_code == 200 and not DEV_MODE:
         headers["Cache-Control"] = "public, max-age=31536000, immutable"  # the ?v= query changes with every release

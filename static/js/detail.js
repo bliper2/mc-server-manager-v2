@@ -82,7 +82,7 @@ function renderDetailLogo(server) {
     next = document.createElement("img");
     next.className = "server-avatar server-avatar-image";
     next.alt = `${server.name} logo`;
-    next.src = `/api/server/${encodeURIComponent(server.id)}/logo/${encodeURIComponent(server.logo.file)}?v=${Date.now()}`;
+    next.src = `/api/server/${encodeURIComponent(server.id)}/logo/${encodeURIComponent(server.logo.file)}?v=${server.logo.rev || 0}`;
   } else {
     next = document.createElement("div");
     next.className = `server-avatar ${server.logo?.style || "avatar-lime"}`;
@@ -100,9 +100,26 @@ async function importServerLogo() {
   const data = await (await fetch(`/api/server/${currentServerId}/logo`, { method: "POST", body: form })).json();
   if (!data.ok) { showToast(data.error || "Logo import failed", "error"); return; }
   showToast("Server logo imported", "success");
+  await refreshServerLogo();
+  input.value = "";
+}
+
+async function refreshServerLogo() {
   const server = (await (await fetch("/api/servers")).json()).find(item => item.id === currentServerId);
   if (server) { renderDetailLogo(server); loadServers(); }
-  input.value = "";
+}
+
+function pickServerLogo() {
+  if (!currentServerId) return;
+  openLogoPicker(async logo => {
+    try {
+      await requestJson(`/api/server/${encodeURIComponent(currentServerId)}/logo`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ logo: logo.ref }) });
+      showToast("Server logo changed", "success");
+      await refreshServerLogo();
+    } catch (error) {
+      showToast(error.message, "error");
+    }
+  });
 }
 
 async function loadServerJava(version) {

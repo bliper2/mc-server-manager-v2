@@ -10,12 +10,12 @@ from pathlib import Path
 
 import requests
 from flask import abort, jsonify, make_response, render_template, request, send_from_directory
-from werkzeug.utils import secure_filename
 
 from . import app
 from .auth import account_permissions, current_account, is_local_request, needs_setup
 from .config import ASSET_VERSION, BACKUPS_DIR, HEADERS, VERSION, IMPORTS_DIR, IMPORT_BATCH_BYTES, IMPORT_SESSION_TTL, MAX_RAM_MB, MIN_RAM_MB
 from . import metrics
+from .logos import LogoError, MAX_LOGO_BYTES, install_server_logo, resolve_ref
 from .procs import ping_minecraft_server, send_command, start_playit, start_server, stop_playit, stop_server
 from .providers import download_paper, download_purpur, download_vanilla, get_paper_versions, get_purpur_versions
 from .rconmap import Rcon, RconError, rcon_settings
@@ -151,6 +151,10 @@ def api_create():
     logo = data.get("logo") if isinstance(data.get("logo"), dict) else {}
     meta = {"name": name, "type": stype, "version": version, "jar": jar_name, "ram": ram, "port": port, "logo": {"mark": str(logo.get("mark") or name[:2]).upper()[:2], "style": str(logo.get("style") or "avatar-lime")}, "eula_accepted": True, "created": datetime.now().isoformat()}
     save_meta(server_id, meta)
+    chosen = resolve_ref(logo.get("library"))
+    if chosen:
+        install_server_logo(server_id, chosen.read_bytes())
+        meta = load_meta(server_id)
     return jsonify({"ok": True, "id": server_id, "meta": meta})
 
 @app.route("/api/system/memory")
@@ -342,24 +346,22 @@ def api_playit_stop(sid):
 
 @app.route("/api/server/<sid>/logo", methods=["POST"])
 def api_server_logo(sid):
-    upload = request.files.get("logo")
-    if not upload or not upload.filename:
-        return jsonify({"ok": False, "error": "Choose a logo image"}), 400
-    extension = Path(secure_filename(upload.filename)).suffix.lower()
-    if extension not in (".png", ".jpg", ".jpeg", ".webp"):
-        return jsonify({"ok": False, "error": "Use a PNG, JPG, or WebP image"}), 400
-    server_path = get_server_path(sid)
-    if not server_path.exists():
+    if not get_server_path(sid).exists():
         return jsonify({"ok": False, "error": "Server not found"}), 404
-    for old_logo in server_path.glob("manager_logo.*"):
-        old_logo.unlink(missing_ok=True)
-    filename = f"manager_logo{extension}"
-    upload.save(str(server_path / filename))
-    meta = load_meta(sid)
-    logo = meta.get("logo") if isinstance(meta.get("logo"), dict) else {}
-    logo["file"] = filename
-    meta["logo"] = logo
-    save_meta(sid, meta)
+    if request.is_json:  # a logo picked from the library
+        chosen = resolve_ref((request.get_json(silent=True) or {}).get("logo"))
+        if chosen is None:
+            return jsonify({"ok": False, "error": "That logo is not in the library any more"}), 400
+        data = chosen.read_bytes()
+    else:
+        upload = request.files.get("logo")
+        if not upload or not upload.filename:
+            return jsonify({"ok": False, "error": "Choose a logo image"}), 400
+        data = upload.stream.read(MAX_LOGO_BYTES + 1)
+    try:
+        filename = install_server_logo(sid, data)
+    except LogoError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
     return jsonify({"ok": True, "url": f"/api/server/{sid}/logo/{filename}"})
 
 @app.route("/api/server/<sid>/logo/<filename>")

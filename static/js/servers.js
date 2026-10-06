@@ -1,22 +1,47 @@
 // Server list, create form and folder import.
 
-function updateCreateLogo() {
-  const name = document.getElementById("create-name")?.value.trim() || "MC";
+// The preview is a picture when a library logo is chosen, otherwise the generated initials.
+function renderCreateLogo() {
   const preview = document.getElementById("create-logo-preview");
   if (!preview) return;
+  let next;
+  if (createLogo.library) {
+    next = document.createElement("img");
+    next.className = "server-avatar server-avatar-image";
+    next.alt = "";
+    next.src = createLogo.libraryUrl;
+  } else {
+    next = document.createElement("div");
+    next.className = `server-avatar ${createLogo.style}`;
+    next.textContent = createLogo.mark;
+  }
+  next.id = "create-logo-preview";
+  preview.replaceWith(next);
+}
+
+function updateCreateLogo() {
+  if (createLogo.library) return;  // a chosen picture does not depend on the name
+  const name = document.getElementById("create-name")?.value.trim() || "MC";
   createLogo.mark = name.slice(0, 2).toUpperCase();
-  preview.textContent = createLogo.mark;
-  preview.className = `server-avatar ${createLogo.style}`;
+  renderCreateLogo();
 }
 
 function shuffleServerLogo() {
   const styles = ["avatar-lime", "avatar-blue", "avatar-amber", "avatar-red"];
   const marks = ["MC", "XP", "GG", "24", "OP", "SV"];
+  createLogo.library = "";
+  createLogo.libraryUrl = "";
   createLogo.style = styles[Math.floor(Math.random() * styles.length)];
   createLogo.mark = marks[Math.floor(Math.random() * marks.length)];
-  const preview = document.getElementById("create-logo-preview");
-  preview.textContent = createLogo.mark;
-  preview.className = `server-avatar ${createLogo.style}`;
+  renderCreateLogo();
+}
+
+function chooseCreateLogo() {
+  openLogoPicker(logo => {
+    createLogo.library = logo.ref;
+    createLogo.libraryUrl = logo.url;
+    renderCreateLogo();
+  });
 }
 
 function renderServerSummary(servers) {
@@ -89,7 +114,7 @@ function sortServers(list) {
 function serverCardHtml(s, i) {
   const id = jsArg(s.id);
   const logo = s.logo?.file
-    ? `<img class="server-avatar server-avatar-image" src="/api/server/${encodeURIComponent(s.id)}/logo/${encodeURIComponent(s.logo.file)}" alt="" />`
+    ? `<img class="server-avatar server-avatar-image" src="/api/server/${encodeURIComponent(s.id)}/logo/${encodeURIComponent(s.logo.file)}?v=${s.logo.rev || 0}" alt="" />`
     : `<div class="server-avatar ${escapeHtml(s.logo?.style || "avatar-lime")}" aria-hidden="true">${escapeHtml(s.logo?.mark || s.name.slice(0, 2).toUpperCase())}</div>`;
   const power = s.running
     ? '<svg viewBox="0 0 16 16" fill="currentColor" stroke="none"><rect x="3.5" y="3.5" width="9" height="9" rx="1.5"/></svg> Stop'
@@ -429,13 +454,16 @@ async function createServer() {
     const res = await fetch("/api/create", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, type, version, ram, logo: createLogo, ...options })
+      body: JSON.stringify({ name, type, version, ram, logo: { mark: createLogo.mark, style: createLogo.style, library: createLogo.library }, ...options })
     });
     const data = await res.json();
     if (data.ok) {
       status.className = "status-msg show ok";
       status.textContent = `Created "${name}"`;
       document.getElementById("create-name").value = "";
+      createLogo.library = "";
+      createLogo.libraryUrl = "";
+      updateCreateLogo();
       updateCreateReview();
       showToast(`Server ${name} created successfully!`, 'success');
       setTimeout(() => switchTab("servers"), 1000);

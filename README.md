@@ -42,7 +42,7 @@ Open `http://127.0.0.1:5000/` after the server starts.
 - Top downloaded plugin and mod lists
 - Plugin YAML, YML, and JSON config editor with download support
 - Playit.gg agent configuration and start/stop controls
-- Server logo generation and custom logo import
+- Server logos: a library of 128 bundled logos, bulk image import and Pinterest pin import
 - Live map of online players with a moderation drawer, over RCON
 - Self-update from the GitHub repo, with a snapshot and rollback
 - 37 themes, seven fonts, density, refresh, and confirmation settings
@@ -168,6 +168,15 @@ Safety for both: HTTPS only; downloads only from the hosts each format allows (M
 
 Not supported yet: Quilt, installing a pack into an existing server, importing a local pack file, and updating an installed pack in place.
 
+## Server logos
+
+**Create** and each server's **Info** panel have a logo library. It holds 128 ready-made logos (emblems in 13 colour schemes and a set of pixel-art icons; search by name or filter by Combat, Royal, Nature, Build and Pixel art) and everything you add yourself under **My logos**:
+
+- **Upload images** takes several PNG, JPG or WebP files at once (4 MB each). The check is on the file's content, not its name.
+- **Import pin** takes the link of a Pinterest pin (or a `pin.it` short link) and stores the pin's image in your library. Pinterest has no public search for other programs, so the **Browse Pinterest** button opens Pinterest's own search in a new tab: find a pin, copy its link, paste it here. Only `pinterest.com` pin pages and `i.pinimg.com` images are ever fetched, every redirect is checked, and the size is capped. Use only images you have the right to use.
+
+Importing or removing library logos needs the *create, import and delete servers* permission. A server keeps its own copy of the logo it uses (`manager_logo.*` in its folder), so removing a library logo never changes a server, and backups and clones include it. The bundled logos are original artwork drawn by `tools/make_logos.py` (needs Pillow; only needed to change the library), so they carry no licence.
+
 ## Health, diagnostics and alerts
 
 - `GET /api/health` is public and returns only `{ok, version, uptime}`, for uptime monitors.
@@ -236,13 +245,15 @@ manager/                   Application code (Flask routes register themselves on
   updater.py  lifecycle.py   Self-update; restarting the manager
   routes_servers.py  routes_files.py  servertools.py  automation.py   HTTP routes and background jobs
   modpacks.py  curseforge.py  loaders.py  packtools.py   Modpack install: Modrinth and CurseForge sources, Fabric/Forge/NeoForge loaders, shared safe downloads
+  logos.py                   Logo library, image import, Pinterest pin import
   ops.py  web.py             Health, diagnostics, log, disk; security headers, gzip, caching
 tests/                     Unit tests (python -m unittest discover -s tests -t .)
 templates/                 index.html (the panel) and login.html
 static/css/themes.css      One colour block per theme
 static/css/app.css         All other styles
 static/js/                 core, servers, detail, console, files, backups, plugins, settings, staff,
-                           automation, modpacks, palette, boot, main (plus map.js and scene.js)
+                           automation, modpacks, logos, palette, boot, main (plus map.js and scene.js)
+static/logos/              The 128 bundled server logos (made by tools/make_logos.py)
 static/vendor/             Bundled Leaflet and three.js (no CDN, works offline)
 mock_rcon.py               Fake RCON server with simulated players for development
 servers/  backups/         Your data (git-ignored)

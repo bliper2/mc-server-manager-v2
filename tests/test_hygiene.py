@@ -41,3 +41,4 @@ class RepositoryHygiene(unittest.TestCase):
         tracked = {path.name for path in tracked_files()}
         self.assertEqual(sorted(tracked & PRIVATE_FILES), [])
         self.assertEqual([p for p in tracked_files() if p.name.startswith(".env")], [])
+        self.assertEqual([p for p in tracked_files() if p.relative_to(ROOT).parts[0] == "logos"], [], "imported logos are the owner's data, not part of the repository")

@@ -91,8 +91,9 @@
             </div>
             <div class="server-logo-picker">
               <div id="create-logo-preview" class="server-avatar avatar-lime">MC</div>
-              <div><strong>Server logo</strong><small>Generated from your server identity</small></div>
-              <button class="btn small" type="button" onclick="shuffleServerLogo()">Shuffle logo</button>
+              <div><strong>Server logo</strong><small>Pick one from the library, or shuffle a generated one</small></div>
+              <button class="btn small" type="button" onclick="chooseCreateLogo()">Choose logo</button>
+              <button class="btn small ghost" type="button" onclick="shuffleServerLogo()">Shuffle</button>
             </div>
             <div class="form-group">
               <label for="create-motd">Message of the day</label>
@@ -559,7 +560,7 @@
               <div class="info-card">
                 <h3>Info</h3>
                 <canvas id="server-core" class="server-core" aria-hidden="true"></canvas>
-                <div class="detail-logo-row"><div id="detail-logo" class="server-avatar avatar-lime">MC</div><div><strong>Server logo</strong><small>Recommended: 256 × 256 px</small><label class="btn small logo-upload-label">Import logo<input id="logo-upload" type="file" accept="image/png,image/jpeg,image/webp" hidden onchange="importServerLogo()" /></label></div></div>
+                <div class="detail-logo-row"><div id="detail-logo" class="server-avatar avatar-lime">MC</div><div><strong>Server logo</strong><small>Recommended: 256 × 256 px</small><div class="detail-logo-actions"><button class="btn small" type="button" data-perm="files" onclick="pickServerLogo()">Library</button><label class="btn small logo-upload-label">Import logo<input id="logo-upload" type="file" accept="image/png,image/jpeg,image/webp" hidden onchange="importServerLogo()" /></label></div></div></div>
                 <div class="detail-actions">
                   <button class="btn small" data-perm="manage" onclick="renameServer()">Rename</button>
                   <button class="btn small" data-perm="manage" onclick="cloneServer(this)">Duplicate</button>
@@ -820,6 +821,32 @@
     </div>
   </dialog>
 
+  <dialog id="logo-dialog" class="modal logo-dialog" aria-labelledby="logo-title">
+    <div class="logo-dialog-head">
+      <div><span class="eyebrow">Server logo</span><h3 id="logo-title">Choose a logo</h3></div>
+      <button type="button" class="btn ghost small" onclick="closeLogoPicker()">Close</button>
+    </div>
+    <div class="logo-tools">
+      <input type="search" id="logo-search" placeholder="Search: sword, emerald, crown..." aria-label="Search logos" autocomplete="off" />
+      <div class="filter-group" id="logo-filter" role="group" aria-label="Logo category"></div>
+    </div>
+    <div id="logo-grid" class="logo-grid" role="listbox" aria-label="Logos"></div>
+    <div class="logo-import" data-perm="manage">
+      <strong>Add your own</strong>
+      <div class="inline-form">
+        <label class="btn small logo-upload-label">Upload images<input id="logo-files" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden onchange="uploadLogoFiles()" /></label>
+        <small class="field-hint">PNG, JPG or WebP, up to 4 MB each. Pick several at once.</small>
+      </div>
+      <div class="inline-form">
+        <input type="text" id="logo-pin" placeholder="Paste a Pinterest pin link" aria-label="Pinterest pin link" autocomplete="off" />
+        <button type="button" class="btn small" id="logo-pin-button" onclick="importPinterestLogo()">Import pin</button>
+        <a class="btn small ghost" href="https://www.pinterest.com/search/pins/?q=minecraft%20server%20logo" target="_blank" rel="noopener">Browse Pinterest</a>
+      </div>
+      <small class="field-hint">Pinterest has no public search for other apps, so find a pin on Pinterest, copy its link and paste it here. Use only images you have the right to use.</small>
+    </div>
+    <div id="logo-status" class="status-msg" role="status"></div>
+  </dialog>
+
   <dialog id="palette-dialog" class="modal palette" aria-label="Search and jump">
     <input type="search" id="palette-input" placeholder="Jump to a page or server, or run an action..." autocomplete="off" aria-label="Search" />
     <div id="palette-list" class="palette-list" role="listbox"></div>
@@ -879,6 +906,7 @@
   <script src="/static/js/staff.js?v={{ asset }}"></script>
   <script src="/static/js/automation.js?v={{ asset }}"></script>
   <script src="/static/js/modpacks.js?v={{ asset }}"></script>
+  <script src="/static/js/logos.js?v={{ asset }}"></script>
   <script src="/static/js/palette.js?v={{ asset }}"></script>
   <script src="/static/js/boot.js?v={{ asset }}"></script>
   <script src="/static/js/main.js?v={{ asset }}"></script>

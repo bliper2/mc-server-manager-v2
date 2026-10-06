@@ -28,7 +28,7 @@ UPDATE_SNAPSHOTS = BACKUPS_DIR / "_manager"
 UPDATE_CHECK_INTERVAL = 6 * 3600
 # Anything holding the user's own data, or the environment the app runs in.
 UPDATE_PROTECTED = {"servers", "backups", ".imports", ".venv", ".git", "__pycache__", "update_state.json", "staff.json", ".secret_key",
-                    "audit.jsonl", "manager_settings.json", "restart_state.json", "manager.log"}
+                    "audit.jsonl", "manager_settings.json", "restart_state.json", "manager.log", "logos"}
 UPDATE_REQUIRED = ("app.py", "templates/index.html", "manager/__init__.py")
 CHANNELS = ("releases", "main")
 

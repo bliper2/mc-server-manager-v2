@@ -24,7 +24,7 @@ OWNER = ("owner", "correct horse")
 def reset_data():
     for name in ("staff.json", "audit.jsonl", "manager_settings.json", "restart_state.json", "update_state.json"):
         (HOME / name).unlink(missing_ok=True)
-    for folder in ("servers", "backups", ".imports"):
+    for folder in ("servers", "backups", ".imports", "logos"):
         shutil.rmtree(HOME / folder, ignore_errors=True)
         (HOME / folder).mkdir(exist_ok=True)
     auth.login_attempts.clear()

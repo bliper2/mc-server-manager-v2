@@ -876,3 +876,28 @@ dialog.wide .form-row { gap: .8rem; }
 .featured-wide { grid-column: 1 / -1; }
 .featured-wide .featured-list { max-height: 440px; }
 @media (min-width: 1100px) { .featured-wide .featured-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* Logo library dialog */
+dialog.logo-dialog { width: min(780px, calc(100vw - 32px)); max-height: calc(100vh - 40px); overflow: hidden; }
+dialog.logo-dialog[open] { display: flex; flex-direction: column; gap: .8rem; }
+.logo-dialog-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.logo-dialog-head h3 { margin: 0; }
+.logo-tools { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; }
+dialog.modal .logo-tools input { flex: 1 1 200px; margin: 0; }
+.logo-tools .filter-group { flex-wrap: wrap; border-radius: 16px; }
+.logo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); align-content: start; gap: .45rem; height: min(340px, 42vh); overflow-y: auto; padding: .5rem; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; }
+.logo-tile { position: relative; }
+.logo-pick { display: block; width: 100%; padding: 4px; background: transparent; border: 1px solid transparent; border-radius: 12px; transition: border-color .15s, background-color .15s, transform .15s var(--ease); }
+.logo-pick:hover, .logo-pick:focus-visible { background: var(--surface); border-color: var(--green); transform: translateY(-2px); }
+.logo-pick img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 9px; }
+.logo-remove { position: absolute; top: 3px; right: 3px; width: 20px; height: 20px; padding: 0; color: #fff; background: rgba(0, 0, 0, .65); border: 0; border-radius: 999px; font-size: .62rem; line-height: 1; opacity: 0; transition: opacity .15s; }
+.logo-tile:hover .logo-remove, .logo-remove:focus-visible { opacity: 1; }
+@media (hover: none) { .logo-remove { opacity: 1; } }
+.logo-empty { grid-column: 1 / -1; padding: 2rem 1rem; color: var(--muted); text-align: center; font-size: .8rem; }
+.logo-import { display: grid; gap: .55rem; padding: .8rem; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; }
+.logo-import .inline-form { flex-wrap: wrap; margin: 0; }
+.logo-import .inline-form input { flex: 1 1 220px; margin: 0; }
+.logo-import .field-hint { margin: 0; }
+dialog.logo-dialog .status-msg { margin: 0; }
+.detail-logo-actions { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .25rem; }
+.detail-logo-actions .logo-upload-label { margin: 0; }
