@@ -195,24 +195,13 @@
 
       <section id="tab-map" class="tab">
         <header class="page-header">
-          <div><span class="eyebrow">Live world</span><h1>Player Map</h1></div>
+          <div><span class="eyebrow">Live world</span><h1>World Map</h1></div>
           <div class="header-actions">
             <label class="sr-only" for="map-server">Server</label>
             <select id="map-server" class="toolbar-select"></select>
             <span id="map-status" class="badge offline">Offline</span>
           </div>
         </header>
-
-        <div id="map-rcon-setup" class="panel-card map-rcon" hidden>
-          <div class="wiki-heading"><div><span class="eyebrow">Required</span><h2>Connect over RCON</h2></div></div>
-          <p class="hint">Live coordinates come from the server's RCON port. Saving writes <code>enable-rcon</code>, <code>rcon.port</code> and <code>rcon.password</code> into server.properties; the server has to restart before it takes effect.</p>
-          <div class="backup-controls">
-            <label class="backup-option"><input type="checkbox" id="rcon-enabled" /><span>Enable RCON</span></label>
-            <label class="backup-option"><span>Port</span><input type="number" id="rcon-port" min="1024" max="65535" value="25575" /></label>
-            <input type="password" id="rcon-password" placeholder="RCON password (blank = generate)" autocomplete="off" />
-            <button class="btn primary small" onclick="saveRcon()">Save RCON settings</button>
-          </div>
-        </div>
 
         <div class="map-layout">
           <div class="map-stage">
@@ -222,17 +211,33 @@
               <button class="dim-tab" data-dim="the_end">End</button>
             </div>
             <div id="map-canvas"></div>
-            <button class="btn small map-center-btn" id="map-center-btn" onclick="centerMap()" title="Fit all players in view"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2"/><path d="M8 1v3M8 12v3M1 8h3M12 8h3"/></svg></button>
+            <div class="map-controls">
+              <button class="btn small map-tool" id="map-center-btn" onclick="centerMap()" title="Fit all online players in view" aria-label="Fit all online players in view"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2.4"/><path d="M8 1.5v3M8 11.5v3M1.5 8h3M11.5 8h3"/></svg></button>
+              <button class="btn small map-tool" id="map-fit-btn" onclick="fitExplored()" title="Fit the explored area" aria-label="Fit the explored area"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/></svg></button>
+              <button class="btn small map-tool" id="map-refresh-btn" onclick="refreshTerrain()" title="Redraw the terrain from the world files" aria-label="Redraw the terrain"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2v3h-3"/></svg></button>
+              <button class="btn small map-tool" id="map-layers-btn" onclick="toggleLayerPanel()" title="Choose what the map shows" aria-label="Layers" aria-expanded="false"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2 1.5 5.5 8 9l6.5-3.5zM1.5 8.5 8 12l6.5-3.5"/></svg></button>
+            </div>
+            <div id="map-layers" class="map-layers" hidden></div>
+            <div id="map-note" class="map-note" hidden></div>
+            <div id="map-context" class="map-context" role="menu" hidden></div>
             <div class="map-toolbar">
               <span id="map-coords" class="map-coords">X 0  Z 0</span>
-              <input type="text" id="structure-label" placeholder="Structure name" maxlength="60" />
-              <input type="text" id="structure-owner" placeholder="Owner (optional)" maxlength="40" />
-              <select id="structure-kind">
+              <button class="btn small" id="map-ruler-btn" onclick="toggleRuler()" title="Measure a distance: click points on the map, Esc to stop">Ruler</button>
+              <input type="text" id="structure-label" placeholder="Place name" maxlength="60" aria-label="Place name" />
+              <input type="text" id="structure-owner" placeholder="Owner (optional)" maxlength="40" aria-label="Owner" />
+              <select id="structure-kind" aria-label="Kind of place">
                 <option value="base">Base</option>
                 <option value="farm">Farm</option>
                 <option value="portal">Portal</option>
                 <option value="shop">Shop</option>
                 <option value="spawn">Spawn</option>
+                <option value="mine">Mine</option>
+                <option value="village">Village</option>
+                <option value="stronghold">Stronghold</option>
+                <option value="monument">Monument</option>
+                <option value="warp">Warp</option>
+                <option value="death">Death point</option>
+                <option value="other">Other</option>
               </select>
               <button class="btn small" onclick="beginPlacement()">Place on map</button>
             </div>
@@ -245,10 +250,34 @@
               <div id="map-player-list" class="active-player-list"><div class="empty">Nobody online</div></div>
             </div>
             <div class="panel-card">
+              <details id="map-lastseen" open>
+                <summary class="map-summary"><h3>Last seen</h3><span id="map-lastseen-count" class="badge type">0</span></summary>
+                <div id="map-lastseen-list" class="active-player-list"><div class="empty">No player files yet</div></div>
+              </details>
+            </div>
+            <div class="panel-card">
+              <details id="map-places" open>
+                <summary class="map-summary"><h3>Places</h3><span id="map-places-count" class="badge type">0</span></summary>
+                <input type="text" id="map-places-search" placeholder="Filter places..." aria-label="Filter places" />
+                <div id="map-places-list" class="active-player-list"><div class="empty">Nothing marked yet. Right-click the map to add a place.</div></div>
+              </details>
+            </div>
+            <div class="panel-card">
               <div class="active-players-heading"><h3>Action log</h3><button id="map-log-toggle" class="console-tool">Hide</button></div>
               <div id="map-log" class="map-log"></div>
             </div>
           </aside>
+        </div>
+
+        <div id="map-rcon-setup" class="panel-card map-rcon" hidden>
+          <div class="wiki-heading"><div><span class="eyebrow">For live positions</span><h2>Connect over RCON</h2></div></div>
+          <p class="hint">The terrain, the world spawn and where players were last seen come straight from the world files and need nothing. <strong>Live</strong> positions come from the server's RCON port: saving writes <code>enable-rcon</code>, <code>rcon.port</code> and <code>rcon.password</code> into server.properties, and the server has to restart before it takes effect.</p>
+          <div class="backup-controls">
+            <label class="backup-option"><input type="checkbox" id="rcon-enabled" /><span>Enable RCON</span></label>
+            <label class="backup-option"><span>Port</span><input type="number" id="rcon-port" min="1024" max="65535" value="25575" /></label>
+            <input type="password" id="rcon-password" placeholder="RCON password (blank = generate)" autocomplete="off" />
+            <button class="btn primary small" onclick="saveRcon()">Save RCON settings</button>
+          </div>
         </div>
 
         <div id="player-drawer" class="drawer">

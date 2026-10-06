@@ -936,3 +936,59 @@ dialog.logo-dialog.banners .logo-pick img { aspect-ratio: 3 / 1; }
 .accent-swatch:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
 .accent-swatch.active { box-shadow: 0 0 0 2px var(--text); transform: scale(1.08); }
 .accent-swatch.active::after { content: ""; position: absolute; inset: 31%; background: rgba(0, 0, 0, .55); border-radius: 50%; }
+
+/* World map: terrain, controls, pins, menus */
+#map-canvas { height: 680px; background: #0b0d10; }
+#map-canvas.no-terrain, .leaflet-container.no-terrain { background: var(--bg); }
+.terrain-tile { image-rendering: pixelated; image-rendering: crisp-edges; }
+.grid-tile { pointer-events: none; }
+.map-controls { position: absolute; top: .7rem; right: .7rem; z-index: 500; display: flex; flex-direction: column; gap: .35rem; }
+.map-controls .map-tool { padding: .45rem; background: var(--surface-raised); box-shadow: 0 4px 14px rgba(0, 0, 0, .4); }
+.map-controls .map-tool svg { width: 15px; height: 15px; margin: 0; }
+.map-layers { position: absolute; top: .7rem; right: 3.4rem; z-index: 520; display: grid; gap: .1rem; min-width: 230px; padding: .6rem; background: var(--surface-raised); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 12px 30px rgba(0, 0, 0, .5); }
+.map-layers[hidden], .map-note[hidden], .map-context[hidden] { display: none; }
+.layer-option { display: flex; align-items: center; gap: .55rem; padding: .3rem .35rem; border-radius: 6px; font-size: .76rem; cursor: pointer; }
+.layer-option:hover { background: var(--surface-hover); }
+.layer-option input { margin: 0; }
+.layer-actions { margin-top: .35rem; padding-top: .45rem; border-top: 1px solid var(--line); }
+.map-note { position: absolute; left: 50%; bottom: 4.6rem; z-index: 510; transform: translateX(-50%); max-width: 80%; padding: .4rem .8rem; color: var(--text); background: color-mix(in srgb, var(--surface-raised) 90%, transparent); border: 1px solid var(--line); border-radius: 999px; font-size: .74rem; text-align: center; pointer-events: none; }
+.map-context { position: absolute; z-index: 700; display: grid; min-width: 230px; padding: .3rem; background: var(--surface-raised); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 14px 34px rgba(0, 0, 0, .55); }
+.map-context button { padding: .5rem .7rem; color: var(--text); background: transparent; border: 0; border-radius: 6px; font-size: .76rem; text-align: left; }
+.map-context button:hover, .map-context button:focus-visible { background: var(--surface-hover); outline: 0; }
+.map-scale { display: flex; flex-direction: column; align-items: flex-start; gap: .15rem; margin: 0 0 .6rem .7rem; color: #fff; font: .62rem var(--mono); text-shadow: 0 1px 3px #000; pointer-events: none; }
+.map-scale-bar { display: block; height: 6px; border: 2px solid #fff; border-top: 0; filter: drop-shadow(0 1px 2px #000); }
+.map-coords { font: .68rem var(--mono); white-space: nowrap; }
+#map-ruler-btn.active { color: var(--on-accent); background: var(--green); }
+.map-summary { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin-bottom: .6rem; cursor: pointer; list-style: none; }
+.map-summary::-webkit-details-marker { display: none; }
+.map-summary h3 { margin: 0; }
+.map-side details .active-player-list { max-height: 240px; overflow-y: auto; }
+.place-row { display: flex; align-items: center; gap: .3rem; }
+.place-row .active-player { flex: 1; min-width: 0; }
+.place-row .mini-btn { flex: 0 0 auto; }
+.place-glyph { display: inline-grid; place-items: center; min-width: 1.1rem; }
+.mini-health { display: block; flex: 0 0 100%; height: 3px; margin-top: .3rem; background: linear-gradient(90deg, var(--green) var(--w), var(--line) var(--w)); border-radius: 2px; }
+.active-player { flex-wrap: wrap; }
+.status-dot.offline { background: var(--muted); }
+.player-pin-head { width: 18px; height: 18px; border-radius: 4px; image-rendering: pixelated; }
+.world-pin-wrap, .place-pin-wrap { background: none; border: 0; }
+.spawn-pin, .bed-pin, .offline-pin, .place-pin { display: flex; align-items: center; gap: .3rem; width: max-content; padding: .18rem .45rem; color: #fff; background: rgba(12, 14, 18, .82); border: 1px solid rgba(255, 255, 255, .22); border-radius: 999px; font-size: .68rem; font-weight: 600; box-shadow: 0 2px 8px rgba(0, 0, 0, .5); transform: translate(-50%, -50%); }
+.spawn-pin { color: #ffd166; border-color: #ffd166; }
+.bed-pin, .offline-pin { color: #cbd5e1; opacity: .85; }
+.bed-pin small, .offline-pin small { font-size: .62rem; font-weight: 500; }
+.offline-pin span { display: grid; place-items: center; width: 16px; height: 16px; color: #0b0d10; background: #94a3b8; border-radius: 50%; font-size: .6rem; font-weight: 800; }
+.place-pin { border-color: var(--pc); }
+.place-pin .place-glyph { color: var(--pc); font-size: .8rem; }
+.place-pin .place-name { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.popup-actions { display: flex; flex-wrap: wrap; gap: .3rem; margin-top: .5rem; }
+.leaflet-popup-content-wrapper, .leaflet-popup-tip { color: var(--text); background: var(--surface-raised); box-shadow: 0 10px 28px rgba(0, 0, 0, .5); }
+.leaflet-popup-content { margin: .7rem .85rem; font: .76rem/1.4 var(--sans, inherit); }
+.leaflet-popup-content small { color: var(--muted); }
+.ruler-tip { color: #111; background: #ffd166; border: 0; font: 700 .66rem var(--mono); box-shadow: 0 2px 6px rgba(0, 0, 0, .5); }
+.ruler-tip::before { display: none; }
+@media (max-width: 1040px) { #map-canvas { height: 520px; } .map-layers { right: .7rem; top: 9rem; } }
+#map-canvas[data-mode] { cursor: crosshair; }
+#map-canvas[data-mode]::after { position: absolute; left: 50%; bottom: 14px; z-index: 600; padding: .35rem .8rem; color: var(--on-accent); background: var(--green); border-radius: 999px; font-size: .72rem; font-weight: 700; transform: translateX(-50%); pointer-events: none; }
+#map-canvas[data-mode="place"]::after { content: "Click to place the marker · Esc to cancel"; }
+#map-canvas[data-mode="move"]::after { content: "Click the new position · Esc to cancel"; }
+#map-canvas[data-mode="ruler"]::after { content: "Click points to measure · Esc to stop"; }

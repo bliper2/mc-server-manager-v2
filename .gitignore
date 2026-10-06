@@ -22,6 +22,7 @@ update_state.json
 manager_settings.json
 /logos/
 /banners/
+/map_cache/
 restart_state.json
 manager.log*
 

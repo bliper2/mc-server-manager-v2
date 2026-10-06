@@ -52,34 +52,36 @@ Open `http://127.0.0.1:5000/` after the server starts.
 
 ## Live map
 
-The **Live Map** tab plots online players on a 2D grid built from their real coordinates, alongside
-structure markers you place yourself.
+The **Live Map** tab draws the real world, not a blank grid.
 
-Positions come from the server's RCON port, so it has to be switched on once per server. Open the tab,
-fill in the RCON panel (leave the password blank to have one generated), save, and restart the server —
-the manager writes `enable-rcon`, `rcon.port`, `rcon.password` and `broadcast-rcon-to-ops=false` into
-that server's `server.properties`. The panel hides itself once RCON is live.
+**Terrain** is read straight from the server's world files (the `.mca` region files), so it needs no plugin and no RCON and works while the server is stopped. Each 512 x 512 block region is drawn once, in the background, at one pixel per block with Minecraft-style relief shading (higher ground lit, lower ground shadowed), water that darkens with depth, and plants skipped so you see the ground. Tiles are cached in `map_cache/` (git-ignored, never touched by updates) and redrawn when the region file has changed for a couple of minutes; the refresh button redraws on demand and *Layers > Clear terrain cache* wipes it. It reads the current world layout (`world/dimensions/minecraft/...`) and the older ones (`world/region`, `DIM-1`, `DIM1`, and Paper's separate `world_nether` and `world_the_end`) for the Overworld, Nether and End. A region that is mostly unexplored simply stays dark where no chunk exists; chunks compressed with LZ4 (`region-file-compression=lz4`) are skipped.
 
-Clicking a player opens a moderation drawer: OP/de-OP, whitelist, kick, ban with a reason, unban,
-teleport to coordinates or to another player, heal, kill, freeze and give. Every command is sent over
-RCON when it is available, so the action log shows the server's own reply rather than a guess. Mute and
-inventory inspection are not in vanilla and need a permissions plugin; the drawer says so rather than
-offering buttons that do nothing.
+Also from the world files, with the server off:
 
-Structure markers are yours to place — no server API can enumerate player builds. Name one, pick a type,
-press **Place on map** and click the spot. They are stored per server in `map_markers.json`.
+- **World spawn**, and each player's **bed / respawn point**.
+- **Last seen**: where every player who ever joined last was, from their player data file, with names from `usercache.json`.
+
+**Live players** need the server's RCON port, switched on once per server. Fill in the RCON card under the map (leave the password blank to have one generated), save, and restart the server: the manager writes `enable-rcon`, `rcon.port`, `rcon.password` and `broadcast-rcon-to-ops=false` into that server's `server.properties`. Positions come every second; health, facing and dimension are asked for every few seconds, which keeps the RCON traffic down. The card hides itself once RCON is live.
+
+Around the map:
+
+- **Layers** (top right): terrain, grid lines (16-block chunk lines when zoomed in, region lines when out), players, trails, last seen, spawn and beds, places, and player skins (off by default because it loads heads from mc-heads.net, which tells that site the player names).
+- **Fit explored area**, **fit online players**, a **scale bar**, and a readout of the block, chunk and region under the cursor with the Nether/Overworld equivalent (x8).
+- **Right-click** the map: copy the coordinates or a `/tp` command, add a place, measure from there, or copy the matching Nether portal spot.
+- **Ruler**: click points to measure a path in blocks (and in the other dimension).
+- **Places** are yours to place: they belong to a dimension, have 12 kinds, can be renamed and moved, and are listed in the side panel with search. They are stored per server in `map_markers.json`. Places made in older versions are in the Overworld.
+
+Clicking a player opens a moderation drawer: OP/de-OP, whitelist, kick, ban with a reason, unban, teleport to coordinates or to another player, heal, kill, freeze and give. Every command is sent over RCON when it is available, so the action log shows the server's own reply rather than a guess. Mute and inventory inspection are not in vanilla and need a permissions plugin; the drawer says so rather than offering buttons that do nothing.
 
 ### Developing without a Minecraft server
 
-`mock_rcon.py` is a fake RCON server with five simulated players walking in circles, so the map and the
-moderation drawer can be worked on with nothing else running:
+`mock_rcon.py` is a fake RCON server with five simulated players walking in circles, so the live part of the map and the moderation drawer can be worked on with nothing else running:
 
 ```powershell
 python mock_rcon.py --port 25575 --password devpass
 ```
 
-Point a server's RCON settings at that port and password. Commands you issue are printed to its console
-instead of being executed.
+Point a server's RCON settings at that port and password. Commands you issue are printed to its console instead of being executed.
 
 ## Backups
 
@@ -261,7 +263,7 @@ manager/                   Application code (Flask routes register themselves on
   procs.py  javatools.py     Minecraft and Playit processes; finding and installing Java
   notify.py  metrics.py      Discord webhook; CPU and memory numbers
   backups.py  providers.py   Backups; jar downloads and the Modrinth client
-  rconmap.py                 RCON client, live map, markers
+  rconmap.py  worldmap.py    RCON client and places; terrain tiles, spawn and last-seen from the world files
   updater.py  lifecycle.py   Self-update; restarting the manager
   routes_servers.py  routes_files.py  servertools.py  automation.py   HTTP routes and background jobs
   modpacks.py  curseforge.py  loaders.py  packtools.py   Modpack install: Modrinth and CurseForge sources, Fabric/Forge/NeoForge loaders, shared safe downloads
