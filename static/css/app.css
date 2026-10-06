@@ -904,3 +904,18 @@ dialog.logo-dialog .status-msg { margin: 0; }
 
 /* Brand logo: the pixel mascot replaces the MC letters in the sidebar and on the sign-in page */
 .logo-icon.logo-image { padding: 0; object-fit: cover; background: #000; border: 1px solid rgba(255, 255, 255, .16); box-shadow: 0 6px 18px rgba(0, 0, 0, .45); }
+
+/* Server banners: the server page and the cards in the server list */
+.detail-banner-row { display: grid; gap: .55rem; margin-bottom: .9rem; padding-bottom: .8rem; border-bottom: 1px solid var(--line); }
+.server-banner { display: grid; place-items: center; height: 96px; overflow: hidden; color: var(--muted); background: var(--bg); border: 1px dashed var(--line); border-radius: 8px; font-size: .72rem; }
+.server-banner img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.server-banner:has(img) { border-style: solid; }
+.detail-banner-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem; }
+.detail-banner-head > div:first-child { display: flex; flex-direction: column; gap: .15rem; }
+.detail-banner-head strong { font-size: .82rem; }
+.detail-banner-head small { color: var(--muted); font-size: .68rem; }
+.detail-banner-head .detail-logo-actions { margin: 0; }
+.server-card-banner { display: block; width: calc(100% + 3rem); height: 78px; margin: -1.5rem -1.5rem 1rem; object-fit: cover; background: var(--bg); border-bottom: 1px solid var(--line); }
+body.density-compact .server-card-banner { width: calc(100% + 1.7rem); margin: -.85rem -.85rem .8rem; }
+dialog.logo-dialog.banners .logo-grid { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+dialog.logo-dialog.banners .logo-pick img { aspect-ratio: 3 / 1; }

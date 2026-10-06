@@ -30,6 +30,7 @@ async function openServer(id) {
   updateDetailStats(null);
   document.getElementById("detail-title").textContent = s.name;
   renderDetailLogo(s);
+  renderDetailBanner(s);
   document.getElementById("detail-info").innerHTML = `
     <div class="row"><span>Type</span><span>${escapeHtml(s.type)}</span></div>
     <div class="row"><span>Version</span><span>${escapeHtml(s.version)}</span></div>
@@ -106,7 +107,46 @@ async function importServerLogo() {
 
 async function refreshServerLogo() {
   const server = (await (await fetch("/api/servers")).json()).find(item => item.id === currentServerId);
-  if (server) { renderDetailLogo(server); loadServers(); }
+  if (server) { renderDetailLogo(server); renderDetailBanner(server); loadServers(); }
+}
+
+// The banner is a wide picture (or animated GIF) shown on the server page and on its card in the list.
+function renderDetailBanner(server) {
+  const box = document.getElementById("detail-banner");
+  if (!box) return;
+  if (server.banner?.file) {
+    const image = document.createElement("img");
+    image.alt = `${server.name} banner`;
+    image.src = `/api/server/${encodeURIComponent(server.id)}/banner/${encodeURIComponent(server.banner.file)}?v=${server.banner.rev || 0}`;
+    box.replaceChildren(image);
+  } else {
+    box.innerHTML = "<span>No banner</span>";
+  }
+  document.getElementById("banner-remove").hidden = !server.banner?.file;
+}
+
+function pickServerBanner() {
+  if (!currentServerId) return;
+  openLogoPicker(async banner => {
+    try {
+      await requestJson(`/api/server/${encodeURIComponent(currentServerId)}/banner`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ banner: banner.ref }) });
+      showToast("Server banner changed", "success");
+      await refreshServerLogo();
+    } catch (error) {
+      showToast(error.message, "error");
+    }
+  }, "banner");
+}
+
+async function removeServerBanner() {
+  if (!currentServerId) return;
+  try {
+    await requestJson(`/api/server/${encodeURIComponent(currentServerId)}/banner`, { method: "DELETE" });
+    showToast("Server banner removed", "success");
+    await refreshServerLogo();
+  } catch (error) {
+    showToast(error.message, "error");
+  }
 }
 
 function pickServerLogo() {

@@ -1,9 +1,17 @@
-// Logo library dialog: bundled artwork, images the owner imported, and Pinterest pins. The create form and the server page both open it.
+// Image library dialog for server logos and banners: bundled artwork, files from the logos/banners folder, uploads, Pinterest pins.
+// The create form and the server page open it; GIFs work as logos and banners and stay animated.
 
 const LOGO_FILTERS = [["all", "All"], ["mine", "My logos"], ["combat", "Combat"], ["royal", "Royal"], ["nature", "Nature"], ["build", "Build"], ["pixel", "Pixel art"]];
+const PICKER_KINDS = {
+  logo: { api: "/api/logos", eyebrow: "Server logo", title: "Choose a logo", folder: "logos", search: "Search: sword, emerald, crown...",
+          empty: "Nothing imported yet. Upload images or paste a Pinterest link below, or drop files into the logos folder and press Refresh." },
+  banner: { api: "/api/banners", eyebrow: "Server banner", title: "Choose a banner", folder: "banners", search: "Search your banners",
+            empty: "No banners yet. Upload images or GIFs or paste a Pinterest link below, or drop files into the banners folder and press Refresh." },
+};
 let logoLibrary = [];
 let logoFilter = "all";
 let logoPickHandler = null;
+let pickerKind = "logo";
 
 function setLogoStatus(message, ok = false) {
   const status = document.getElementById("logo-status");
@@ -11,8 +19,17 @@ function setLogoStatus(message, ok = false) {
   status.className = message ? `status-msg show ${ok ? "ok" : "err"}` : "status-msg";
 }
 
-async function openLogoPicker(onPick) {
+async function openLogoPicker(onPick, kind = "logo") {
   logoPickHandler = onPick;
+  pickerKind = kind;
+  logoFilter = kind === "logo" ? "all" : "mine";
+  const config = PICKER_KINDS[kind];
+  document.getElementById("logo-dialog").classList.toggle("banners", kind === "banner");
+  document.getElementById("logo-eyebrow").textContent = config.eyebrow;
+  document.getElementById("logo-title").textContent = config.title;
+  document.getElementById("logo-folder-name").textContent = config.folder;
+  document.getElementById("logo-search").placeholder = config.search;
+  document.getElementById("logo-filter").hidden = kind !== "logo";
   setLogoStatus("");
   document.getElementById("logo-search").value = "";
   document.getElementById("logo-dialog").showModal();
@@ -28,8 +45,8 @@ function closeLogoPicker() {
 }
 
 async function loadLogoLibrary() {
-  const data = await requestJson("/api/logos");
-  logoLibrary = [...data.custom, ...data.bundled];
+  const data = await requestJson(PICKER_KINDS[pickerKind].api);
+  logoLibrary = [...data.custom, ...(data.bundled || [])];
   renderLogoFilters();
   renderLogoGrid();
 }
@@ -47,13 +64,14 @@ function renderLogoGrid() {
   const query = document.getElementById("logo-search").value.trim().toLowerCase();
   const shown = logoLibrary.filter(logo => (logoFilter === "all" || logo.category === logoFilter) && (!query || `${logo.name} ${logo.category}`.toLowerCase().includes(query)));
   if (!shown.length) {
-    const empty = logoFilter === "mine" && !query ? "Nothing imported yet. Upload images or paste a Pinterest link below." : "No logos match.";
+    const empty = logoFilter === "mine" && !query ? PICKER_KINDS[pickerKind].empty : "Nothing matches.";
     grid.innerHTML = `<div class="logo-empty">${empty}</div>`;
     return;
   }
+  const size = pickerKind === "banner" ? 'width="240" height="80"' : 'width="64" height="64"';
   grid.innerHTML = shown.map(logo => `<div class="logo-tile">
-      <button type="button" class="logo-pick" role="option" title="${escapeHtml(logo.name)}" onclick="chooseLogo(${jsArg(logo.ref)})"><img src="${escapeHtml(logo.url)}" alt="${escapeHtml(logo.name)}" width="64" height="64" loading="lazy" /></button>
-      ${logo.category === "mine" ? `<button type="button" class="logo-remove" data-perm="manage" title="Remove from the library" aria-label="Remove ${escapeHtml(logo.name)} from the library" onclick="removeLogo(${jsArg(logo.ref)})">✕</button>` : ""}
+      <button type="button" class="logo-pick" role="option" title="${escapeHtml(logo.name)}" onclick="chooseLogo(${jsArg(logo.ref)})"><img src="${escapeHtml(logo.url)}" alt="${escapeHtml(logo.name)}" ${size} loading="lazy" /></button>
+      ${logo.category === "mine" ? `<button type="button" class="logo-remove" data-perm="manage" title="Delete this file" aria-label="Delete ${escapeHtml(logo.name)}" onclick="removeLogo(${jsArg(logo.ref)})">✕</button>` : ""}
     </div>`).join("");
 }
 
@@ -66,9 +84,10 @@ function chooseLogo(ref) {
 
 async function removeLogo(ref) {
   const logo = logoLibrary.find(item => item.ref === ref);
-  if (!logo || !await uiAsk({ title: "Remove this logo?", message: `"${logo.name}" is deleted from the logos folder. Servers already using it keep their copy.`, confirmText: "Remove", danger: true })) return;
+  const config = PICKER_KINDS[pickerKind];
+  if (!logo || !await uiAsk({ title: "Delete this file?", message: `"${logo.name}" is deleted from the ${config.folder} folder. Servers already using it keep their copy.`, confirmText: "Delete", danger: true })) return;
   try {
-    await requestJson(`/api/logos/custom/${encodeURIComponent(ref.split("/")[1])}`, { method: "DELETE" });
+    await requestJson(`${config.api}/custom/${encodeURIComponent(ref.split("/")[1])}`, { method: "DELETE" });
     await loadLogoLibrary();
   } catch (error) {
     setLogoStatus(error.message);
@@ -82,9 +101,9 @@ async function uploadLogoFiles() {
   for (const file of input.files) form.append("files", file);
   setLogoStatus("Uploading...", true);
   try {
-    const data = await requestJson("/api/logos/custom", { method: "POST", body: form });
+    const data = await requestJson(`${PICKER_KINDS[pickerKind].api}/custom`, { method: "POST", body: form });
     const skipped = data.skipped.length ? ` ${data.skipped.length} skipped (${data.skipped[0]}).` : "";
-    setLogoStatus(`Added ${data.added.length} logo${data.added.length === 1 ? "" : "s"} to My logos.${skipped}`, true);
+    setLogoStatus(`Added ${data.added.length} file${data.added.length === 1 ? "" : "s"}.${skipped}`, true);
     logoFilter = "mine";
     await loadLogoLibrary();
   } catch (error) {
@@ -101,9 +120,9 @@ async function importPinterestLogo() {
   button.disabled = true;
   setLogoStatus("Fetching the pin...", true);
   try {
-    await requestJson("/api/logos/pinterest", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }) });
+    await requestJson(`${PICKER_KINDS[pickerKind].api}/pinterest`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ url }) });
     field.value = "";
-    setLogoStatus("Added to My logos. Click it to use it.", true);
+    setLogoStatus("Added. Click it to use it.", true);
     logoFilter = "mine";
     await loadLogoLibrary();
   } catch (error) {

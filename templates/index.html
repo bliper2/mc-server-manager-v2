@@ -562,7 +562,12 @@
               <div class="info-card">
                 <h3>Info</h3>
                 <canvas id="server-core" class="server-core" aria-hidden="true"></canvas>
-                <div class="detail-logo-row"><div id="detail-logo" class="server-avatar avatar-lime">MC</div><div><strong>Server logo</strong><small>Recommended: 256 × 256 px</small><div class="detail-logo-actions"><button class="btn small" type="button" data-perm="files" onclick="pickServerLogo()">Library</button><label class="btn small logo-upload-label">Import logo<input id="logo-upload" type="file" accept="image/png,image/jpeg,image/webp" hidden onchange="importServerLogo()" /></label></div></div></div>
+                <div class="detail-logo-row"><div id="detail-logo" class="server-avatar avatar-lime">MC</div><div><strong>Server logo</strong><small>Recommended: 256 × 256 px</small><div class="detail-logo-actions"><button class="btn small" type="button" data-perm="files" onclick="pickServerLogo()">Library</button><label class="btn small logo-upload-label">Import logo<input id="logo-upload" type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden onchange="importServerLogo()" /></label></div></div></div>
+                <div class="detail-banner-row">
+                  <div id="detail-banner" class="server-banner"><span>No banner</span></div>
+                  <div class="detail-banner-head"><div><strong>Server banner</strong><small>PNG, JPG, WebP or an animated GIF</small></div>
+                    <div class="detail-logo-actions"><button class="btn small" type="button" data-perm="files" onclick="pickServerBanner()">Banner</button><button class="btn small ghost" type="button" id="banner-remove" data-perm="files" onclick="removeServerBanner()" hidden>Remove</button></div></div>
+                </div>
                 <div class="detail-actions">
                   <button class="btn small" data-perm="manage" onclick="renameServer()">Rename</button>
                   <button class="btn small" data-perm="manage" onclick="cloneServer(this)">Duplicate</button>
@@ -825,7 +830,7 @@
 
   <dialog id="logo-dialog" class="modal logo-dialog" aria-labelledby="logo-title">
     <div class="logo-dialog-head">
-      <div><span class="eyebrow">Server logo</span><h3 id="logo-title">Choose a logo</h3></div>
+      <div><span class="eyebrow" id="logo-eyebrow">Server logo</span><h3 id="logo-title">Choose a logo</h3></div>
       <button type="button" class="btn ghost small" onclick="closeLogoPicker()">Close</button>
     </div>
     <div class="logo-tools">
@@ -837,8 +842,8 @@
     <div class="logo-import" data-perm="manage">
       <strong>Add your own</strong>
       <div class="inline-form">
-        <label class="btn small logo-upload-label">Upload images<input id="logo-files" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden onchange="uploadLogoFiles()" /></label>
-        <small class="field-hint">PNG, JPG or WebP, up to 8 MB each. Or just drop image files into the <strong>logos</strong> folder next to the manager and press Refresh.</small>
+        <label class="btn small logo-upload-label">Upload images<input id="logo-files" type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden onchange="uploadLogoFiles()" /></label>
+        <small class="field-hint">PNG, JPG, GIF or WebP, up to 8 MB each. Or just drop image files into the <strong id="logo-folder-name">logos</strong> folder next to the manager and press Refresh.</small>
       </div>
       <div class="inline-form">
         <input type="text" id="logo-pin" placeholder="Paste a Pinterest pin link" aria-label="Pinterest pin link" autocomplete="off" />

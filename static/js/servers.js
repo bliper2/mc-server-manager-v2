@@ -116,11 +116,15 @@ function serverCardHtml(s, i) {
   const logo = s.logo?.file
     ? `<img class="server-avatar server-avatar-image" src="/api/server/${encodeURIComponent(s.id)}/logo/${encodeURIComponent(s.logo.file)}?v=${s.logo.rev || 0}" alt="" />`
     : `<div class="server-avatar ${escapeHtml(s.logo?.style || "avatar-lime")}" aria-hidden="true">${escapeHtml(s.logo?.mark || s.name.slice(0, 2).toUpperCase())}</div>`;
+  const banner = s.banner?.file
+    ? `<img class="server-card-banner" src="/api/server/${encodeURIComponent(s.id)}/banner/${encodeURIComponent(s.banner.file)}?v=${s.banner.rev || 0}" alt="" loading="lazy" />`
+    : "";
   const power = s.running
     ? '<svg viewBox="0 0 16 16" fill="currentColor" stroke="none"><rect x="3.5" y="3.5" width="9" height="9" rx="1.5"/></svg> Stop'
     : '<svg viewBox="0 0 16 16" fill="currentColor" stroke="none"><path d="M4 2.5v11l9-5.5-9-5.5z"/></svg> Start';
   return `
       <div class="server-card ${s.running ? "online" : "offline"}" style="--i:${i}" tabindex="0" role="button" aria-label="Open ${escapeHtml(s.name)}" onclick="openServer(${id})">
+        ${banner}
         <div class="card-top">
           <div class="server-name-line">${logo}<h3>${escapeHtml(s.name)}</h3></div>
           <div class="server-status">

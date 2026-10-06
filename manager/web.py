@@ -1,6 +1,7 @@
 """Transport hardening: security headers, gzip, cache headers and proxy-aware session cookies."""
 
 import gzip
+import re
 
 from flask import request
 from flask.sessions import SecureCookieSessionInterface
@@ -23,6 +24,7 @@ CSP = "; ".join([
 ])
 COMPRESSIBLE = ("text/", "application/json", "application/javascript", "image/svg+xml")
 MIN_COMPRESS_BYTES = 1024
+SERVER_IMAGE_PATH = re.compile(r"^/api/server/[^/]+/(?:logo|banner)/[^/]+$")
 
 
 class ProxyAwareSessions(SecureCookieSessionInterface):
@@ -54,8 +56,10 @@ def harden_response(response):
     headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()")
     if response.mimetype == "text/html":
         headers.setdefault("Content-Security-Policy", CSP)
-    if request.path.startswith("/api/logos/custom/") and request.method == "GET":
+    if request.path.startswith(("/api/logos/custom/", "/api/banners/custom/")) and request.method == "GET":
         headers["Cache-Control"] = "private, no-cache"  # files in the logos folder can be replaced under the same name, so the browser asks every time (a cheap 304)
+    elif request.method == "GET" and "v" in request.args and SERVER_IMAGE_PATH.match(request.path) and response.status_code == 200:
+        headers["Cache-Control"] = "private, max-age=31536000, immutable"  # a server's logo or banner URL carries its revision, so it changes when the picture does
     elif request.path.startswith("/api/"):
         headers["Cache-Control"] = "no-store"
     elif request.path.startswith("/static/") and "v" in request.args and response.status_code == 200 and not DEV_MODE:

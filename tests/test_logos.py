@@ -11,6 +11,7 @@ from manager import logos, routes_servers
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 64
 JPEG = b"\xff\xd8\xff\xe0" + b"0" * 64
+GIF = b"GIF89a" + b"0" * 64
 PAGE_AS_PNG = b"<html><script>alert(1)</script></html>"
 
 
@@ -172,7 +173,7 @@ class LogosFolder(AppTestCase):
         (folder / "My Server (final) #2.PNG").write_bytes(PNG)
         (folder / "holiday photo.jpeg").write_bytes(JPEG)
         (folder / "fake.png").write_bytes(PAGE_AS_PNG)
-        (folder / "notes.txt").write_bytes(PNG)
+        (folder / "notes.txt").write_bytes(b"just some notes")
         (folder / ".hidden.png").write_bytes(PNG)
         (folder / "huge.png").write_bytes(PNG + b"0" * (logos.MAX_LOGO_BYTES + 1))
         listed = owner.get("/api/logos").get_json()["custom"]
@@ -180,6 +181,24 @@ class LogosFolder(AppTestCase):
         first = next(logo for logo in listed if logo["name"].startswith("My Server"))
         self.assertEqual(status_of(owner, first["url"]), 200, "names with spaces and # are served")
         self.assertNotIn(" ", first["url"])
+
+    def test_gifs_and_files_with_no_image_extension_work_too(self):
+        owner = self.owner()
+        folder = HOME / "logos"
+        folder.mkdir(exist_ok=True)
+        (folder / "dancing.gif").write_bytes(GIF)
+        page_title = "Minimal Abstract Mark _.  #logomark #minimalism" + "x" * 60 + "\u2026.  #logomark #minimalism\u2026"  # what saving a Pinterest page title leaves behind
+        (folder / page_title).write_bytes(JPEG)
+        listed = owner.get("/api/logos").get_json()["custom"]
+        self.assertEqual(len(listed), 2, [logo["name"] for logo in listed])
+        for logo in listed:
+            reply = owner.get(logo["url"])
+            reply.close()
+            self.assertEqual(reply.status_code, 200, logo["name"])
+            self.assertTrue(reply.mimetype in ("image/gif", "image/jpeg"), reply.mimetype)
+        make_server()
+        self.assertEqual(owner.post("/api/server/alpha_1/logo", json={"logo": next(l["ref"] for l in listed if l["name"] == "dancing")}).status_code, 200)
+        self.assertTrue((HOME / "servers" / "alpha_1" / "manager_logo.gif").exists())
 
     def test_a_dropped_file_can_be_used_for_a_server_and_removed(self):
         folder = make_server()
@@ -197,7 +216,7 @@ class LogosFolder(AppTestCase):
         (HOME / "logos").mkdir(exist_ok=True)
         (HOME / "outside.png").write_bytes(PNG)
         (HOME / "logos" / "inside.png").write_bytes(PNG)
-        for bad in ("custom/../outside.png", "custom/..\\outside.png", "custom/sub/inside.png", "custom//inside.png", "custom/.png", "custom/inside.exe", "custom/inside.png\x00"):
+        for bad in ("custom/../outside.png", "custom/..\\outside.png", "custom/sub/inside.png", "custom//inside.png", "custom/.png", "custom/inside.png\x00", "custom/" + "x" * 300):
             self.assertIsNone(logos.resolve_ref(bad), bad)
         self.assertIsNotNone(logos.resolve_ref("custom/inside.png"))
 
