@@ -253,6 +253,20 @@ class Updates(AppTestCase):
                 updater.check_manager_update()
             self.assertEqual(apply.called, expect_install, (channel, release))
 
+    def test_automatic_checks_look_at_github_every_ten_minutes(self):
+        from datetime import datetime, timedelta
+        self.assertEqual(updater.UPDATE_CHECK_INTERVAL, 600)
+        latest = {"update_available": False, "release": None, "sha": "x", "short": "x", "ref": "main"}
+        for minutes_ago, expect_check in ((1, False), (9, False), (10, True), (45, True)):
+            last = (datetime.now() - timedelta(minutes=minutes_ago)).isoformat(timespec="seconds")
+            state_now = {"auto_check": True, "auto_install": False, "channel": "releases", "last_check": last, "installed": "old", "latest": None}
+            with mock.patch.object(updater, "load_update_state", return_value=state_now), mock.patch.object(updater, "save_update_state"),                     mock.patch.object(updater, "fetch_update_status", return_value=latest) as fetch:
+                updater.check_manager_update()
+            self.assertEqual(fetch.called, expect_check, f"{minutes_ago} minutes after the last check")
+        with mock.patch.object(updater, "load_update_state", return_value={"auto_check": False, "last_check": None}), mock.patch.object(updater, "fetch_update_status") as fetch:
+            updater.check_manager_update()
+        self.assertFalse(fetch.called, "switched off means no automatic checks")
+
     def test_user_data_is_never_overwritten(self):
         for name in ("servers/x/world", "backups/y.zip", "staff.json", ".secret_key", "audit.jsonl", "manager_settings.json", "restart_state.json", "update_state.json"):
             self.assertTrue(updater.is_protected(name), name)

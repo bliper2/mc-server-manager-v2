@@ -25,7 +25,7 @@ UPDATE_BRANCH = os.environ.get("MC_MANAGER_BRANCH", "main")
 GITHUB_API = os.environ.get("MC_MANAGER_UPDATE_API", "https://api.github.com").rstrip("/")
 UPDATE_STATE_FILE = DATA_DIR / "update_state.json"
 UPDATE_SNAPSHOTS = BACKUPS_DIR / "_manager"
-UPDATE_CHECK_INTERVAL = 6 * 3600
+UPDATE_CHECK_INTERVAL = 10 * 60  # seconds between automatic looks at GitHub: six unauthenticated API calls an hour, far under its limit of 60
 # Anything holding the user's own data, or the environment the app runs in.
 UPDATE_PROTECTED = {"servers", "backups", ".imports", ".venv", ".git", "__pycache__", "update_state.json", "staff.json", ".secret_key",
                     "audit.jsonl", "manager_settings.json", "restart_state.json", "manager.log", "logos", "banners", "map_cache"}
@@ -272,7 +272,7 @@ def check_manager_update():
     last = state.get("last_check")
     if last:
         try:
-            if (datetime.now() - datetime.fromisoformat(last)).total_seconds() < UPDATE_CHECK_INTERVAL:
+            if (datetime.now() - datetime.fromisoformat(last)).total_seconds() < UPDATE_CHECK_INTERVAL - 5:  # a few seconds of slack for the clock and the loop
                 return
         except ValueError:
             pass

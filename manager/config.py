@@ -3,7 +3,7 @@
 import os
 from pathlib import Path
 
-VERSION = "2.11.0"
+VERSION = "2.11.1"
 DEV_MODE = os.environ.get("MC_MANAGER_DEV", "1") == "1"
 # Exit code that tells the supervisor (app.py or the Werkzeug reloader) to start the manager again.
 RESTART_EXIT_CODE = 3
@@ -34,7 +34,7 @@ BACKUP_SKIP_DIRS = {"logs", "crash-reports", "cache", "debug", "libraries", "ver
 BACKUP_SKIP_NAMES = {"session.lock", "usercache.json"}
 MIN_RAM_MB = 512
 MAX_RAM_MB = 65536
-MAINTENANCE_INTERVAL = 300
+MAINTENANCE_INTERVAL = 60  # the loop that looks for manager updates wakes every minute; each job keeps its own, longer, schedule
 UPDATE_CACHE_TTL = 3600
 
 HEADERS = {

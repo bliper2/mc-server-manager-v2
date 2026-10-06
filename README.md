@@ -139,6 +139,7 @@ before that happens.
   `audit.jsonl`, `manager_settings.json` or `update_state.json`.
 - The files it replaces are zipped into `backups/_manager/` first; **Roll back last update** restores the
   newest of those (the last five are kept) and restarts too.
+- **Check automatically** looks at GitHub every 10 minutes while the manager runs (a few requests an hour, well under GitHub's anonymous limit).
 - **Install automatically** is off by default and only ever installs published releases, never a raw commit.
   After an automatic install the manager restarts itself the next time no server is running.
 - Updating needs the owner account.
