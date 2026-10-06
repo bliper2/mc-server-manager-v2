@@ -319,18 +319,35 @@ function restoreSidebar() {
   try { if (localStorage.getItem("mc-manager-sidebar") === "1") toggleSidebar(true); } catch {}
 }
 
+let faviconBase = null;
+
 // Browser tab title and icon show whether anything is running, so a pinned tab is useful at a glance.
 function updateTitle(online) {
   document.title = `${online ? `(${online} online) ` : ""}MC Server Manager v2`;
-  let icon = document.getElementById("favicon");
-  if (!icon) {
-    icon = document.createElement("link");
-    icon.id = "favicon";
-    icon.rel = "icon";
-    document.head.appendChild(icon);
+  const icon = document.getElementById("favicon");
+  if (!icon) return;
+  if (!faviconBase) {
+    faviconBase = new Image();
+    faviconBase.onload = () => updateTitle(online);
+    faviconBase.src = "/static/img/favicon.png";
+    return;
   }
-  const color = online ? "%23a3e635" : "%239ca3af";
-  icon.href = `data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23131316'/><rect x='7' y='7' width='18' height='18' rx='4' fill='${color}'/></svg>`;
+  if (!faviconBase.complete || !faviconBase.naturalWidth) return;
+  // the logo, plus a green dot in the corner while any server is running
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 64;
+  const context = canvas.getContext("2d");
+  context.drawImage(faviconBase, 0, 0, 64, 64);
+  if (online) {
+    context.fillStyle = "#a3e635";
+    context.strokeStyle = "#0b0b0e";
+    context.lineWidth = 5;
+    context.beginPath();
+    context.arc(50, 50, 12, 0, Math.PI * 2);
+    context.stroke();
+    context.fill();
+  }
+  icon.href = canvas.toDataURL("image/png");
 }
 
 function openShortcuts() {

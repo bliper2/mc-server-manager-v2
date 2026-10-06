@@ -901,3 +901,6 @@ dialog.modal .logo-tools input { flex: 1 1 200px; margin: 0; }
 dialog.logo-dialog .status-msg { margin: 0; }
 .detail-logo-actions { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .25rem; }
 .detail-logo-actions .logo-upload-label { margin: 0; }
+
+/* Brand logo: the pixel mascot replaces the MC letters in the sidebar and on the sign-in page */
+.logo-icon.logo-image { padding: 0; object-fit: cover; background: #000; border: 1px solid rgba(255, 255, 255, .16); box-shadow: 0 6px 18px rgba(0, 0, 0, .45); }
