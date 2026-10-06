@@ -55,7 +55,7 @@ def harden_response(response):
     if response.mimetype == "text/html":
         headers.setdefault("Content-Security-Policy", CSP)
     if request.path.startswith("/api/logos/custom/") and request.method == "GET":
-        headers["Cache-Control"] = "private, max-age=86400"  # library logos are named after their content, so a name never changes meaning
+        headers["Cache-Control"] = "private, no-cache"  # files in the logos folder can be replaced under the same name, so the browser asks every time (a cheap 304)
     elif request.path.startswith("/api/"):
         headers["Cache-Control"] = "no-store"
     elif request.path.startswith("/static/") and "v" in request.args and response.status_code == 200 and not DEV_MODE:

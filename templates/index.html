@@ -831,13 +831,14 @@
     <div class="logo-tools">
       <input type="search" id="logo-search" placeholder="Search: sword, emerald, crown..." aria-label="Search logos" autocomplete="off" />
       <div class="filter-group" id="logo-filter" role="group" aria-label="Logo category"></div>
+      <button type="button" class="btn small ghost" onclick="loadLogoLibrary()" title="Look in the logos folder again">Refresh</button>
     </div>
     <div id="logo-grid" class="logo-grid" role="listbox" aria-label="Logos"></div>
     <div class="logo-import" data-perm="manage">
       <strong>Add your own</strong>
       <div class="inline-form">
         <label class="btn small logo-upload-label">Upload images<input id="logo-files" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden onchange="uploadLogoFiles()" /></label>
-        <small class="field-hint">PNG, JPG or WebP, up to 4 MB each. Pick several at once.</small>
+        <small class="field-hint">PNG, JPG or WebP, up to 8 MB each. Or just drop image files into the <strong>logos</strong> folder next to the manager and press Refresh.</small>
       </div>
       <div class="inline-form">
         <input type="text" id="logo-pin" placeholder="Paste a Pinterest pin link" aria-label="Pinterest pin link" autocomplete="off" />

@@ -66,7 +66,7 @@ function chooseLogo(ref) {
 
 async function removeLogo(ref) {
   const logo = logoLibrary.find(item => item.ref === ref);
-  if (!logo || !await uiAsk({ title: "Remove this logo?", message: `"${logo.name}" leaves the library. Servers already using it keep their copy.`, confirmText: "Remove", danger: true })) return;
+  if (!logo || !await uiAsk({ title: "Remove this logo?", message: `"${logo.name}" is deleted from the logos folder. Servers already using it keep their copy.`, confirmText: "Remove", danger: true })) return;
   try {
     await requestJson(`/api/logos/custom/${encodeURIComponent(ref.split("/")[1])}`, { method: "DELETE" });
     await loadLogoLibrary();

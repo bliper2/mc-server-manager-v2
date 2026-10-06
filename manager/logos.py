@@ -1,14 +1,16 @@
 """Server logos: the bundled library, logos the owner imports (files or a Pinterest pin) and putting one on a server.
 
 A server keeps its own copy of the chosen image (manager_logo.<ext> in its folder), so deleting a library logo or
-cloning and backing up a server never loses the picture."""
+cloning and backing up a server never loses the picture.
 
-import hashlib
+The owner's own logos live in the "logos" folder next to the manager. Any PNG, JPG or WebP dropped in there shows up
+under My logos, whatever it is called; imports from the panel and from Pinterest are saved into the same folder."""
+
 import html
 import re
 import time
 from pathlib import Path
-from urllib.parse import urljoin, urlparse
+from urllib.parse import quote, urljoin, urlparse
 
 import requests
 from flask import abort, jsonify, request, send_from_directory
@@ -19,11 +21,14 @@ from .store import get_server_path, load_meta, save_meta
 
 BUNDLED_DIR = BASE_DIR / "static" / "logos"
 CUSTOM_DIR = DATA_DIR / "logos"
-MAX_LOGO_BYTES = 4 * 1024 * 1024
+MAX_LOGO_BYTES = 8 * 1024 * 1024
 MAX_CUSTOM_LOGOS = 300
 MAX_UPLOAD_FILES = 40
 MAX_PIN_PAGE_BYTES = 4 * 1024 * 1024  # a pin page is about 1.2 MB and its og:image tag sits well past the first megabyte
-NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,80}\.(png|jpg|webp)$")
+NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,80}\.(png|jpg|webp)$")  # bundled files are named by us
+CUSTOM_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
+FOLDER_NOTE = ("Put your server logo images (PNG, JPG or WebP) in this folder.\r\n"
+               "They appear under \"My logos\" when you choose a logo in MC Server Manager.\r\n")
 CATEGORY_ORDER = ("combat", "royal", "nature", "build", "pixel")
 PIN_IMAGE_HOST = "i.pinimg.com"
 
@@ -43,14 +48,41 @@ def image_extension(data: bytes):
     return None
 
 
+def ensure_folder():
+    """Creates the logos folder, with a note explaining it, so the owner has somewhere obvious to drop images."""
+    if CUSTOM_DIR.is_dir():
+        return
+    CUSTOM_DIR.mkdir(parents=True, exist_ok=True)
+    (CUSTOM_DIR / "Put your logo images here.txt").write_text(FOLDER_NOTE, encoding="utf-8")
+
+
+def custom_name_ok(name) -> bool:
+    """Files the owner dropped in can have any name, but never a path, a hidden name or a type that is not an image."""
+    return (isinstance(name, str) and 0 < len(name) <= 150 and name == Path(name).name and "/" not in name and "\\" not in name
+            and not name.startswith(".") and not any(ord(char) < 32 for char in name) and Path(name).suffix.lower() in CUSTOM_EXTENSIONS)
+
+
+def is_logo_file(path: Path) -> bool:
+    """A real image of a sensible size, judged by its first bytes, not by its name."""
+    try:
+        if not path.is_file() or path.stat().st_size > MAX_LOGO_BYTES:
+            return False
+        with path.open("rb") as handle:
+            return image_extension(handle.read(16)) is not None
+    except OSError:
+        return False
+
+
 def resolve_ref(ref):
-    """The file a logo reference such as "bundled/combat-sword-gold.png" or "custom/my-logo-1a2b3c.png" names, or None."""
+    """The file a logo reference such as "bundled/combat-sword-gold.png" or "custom/My Logo.png" names, or None."""
     kind, _, name = str(ref or "").partition("/")
-    folder = {"bundled": BUNDLED_DIR, "custom": CUSTOM_DIR}.get(kind)
-    if folder is None or not NAME_PATTERN.match(name):
-        return None
-    path = folder / name
-    return path if path.is_file() else None
+    if kind == "bundled" and NAME_PATTERN.match(name):
+        path = BUNDLED_DIR / name
+        return path if path.is_file() else None
+    if kind == "custom" and custom_name_ok(name):
+        path = CUSTOM_DIR / name
+        return path if is_logo_file(path) else None
+    return None
 
 
 def describe(kind: str, path: Path) -> dict:
@@ -61,8 +93,8 @@ def describe(kind: str, path: Path) -> dict:
         url = f"/static/logos/{path.name}?v={ASSET_VERSION}"
     else:
         category = "mine"
-        label = " ".join(parts[:-1] or parts).title()
-        url = f"/api/logos/custom/{path.name}"
+        label = re.sub(r"[-_]+", " ", path.stem).strip() or path.stem
+        url = f"/api/logos/custom/{quote(path.name)}"
     return {"ref": f"{kind}/{path.name}", "name": label, "category": category, "url": url}
 
 
@@ -72,11 +104,9 @@ def list_logos() -> dict:
         return (CATEGORY_ORDER.index(category) if category in CATEGORY_ORDER else len(CATEGORY_ORDER), logo["name"])
 
     bundled = sorted((describe("bundled", p) for p in BUNDLED_DIR.glob("*.png") if NAME_PATTERN.match(p.name)), key=order)
-    custom = []
-    if CUSTOM_DIR.is_dir():
-        files = sorted((p for p in CUSTOM_DIR.iterdir() if p.is_file() and NAME_PATTERN.match(p.name)), key=lambda p: p.stat().st_mtime, reverse=True)
-        custom = [describe("custom", p) for p in files]
-    return {"bundled": bundled, "custom": custom}
+    ensure_folder()
+    files = sorted((p for p in CUSTOM_DIR.iterdir() if custom_name_ok(p.name) and is_logo_file(p)), key=lambda p: p.stat().st_mtime, reverse=True)
+    return {"bundled": bundled, "custom": [describe("custom", p) for p in files]}
 
 
 def add_custom(data: bytes, label: str) -> dict:
@@ -85,13 +115,20 @@ def add_custom(data: bytes, label: str) -> dict:
     extension = image_extension(data)
     if not extension:
         raise LogoError("Use a PNG, JPG or WebP image")
-    CUSTOM_DIR.mkdir(parents=True, exist_ok=True)
+    ensure_folder()
+    stem = re.sub(r"[^\w \-]+", "", label).strip()[:60] or "logo"
+    path = CUSTOM_DIR / f"{stem}{extension}"
+    for number in range(2, 100):
+        if not path.exists():
+            break
+        if path.read_bytes() == data:
+            return describe("custom", path)  # the same picture is already in the folder
+        path = CUSTOM_DIR / f"{stem}-{number}{extension}"
+    else:
+        raise LogoError("There are too many logos with that name. Rename the file and try again")
     if sum(1 for _ in CUSTOM_DIR.iterdir()) >= MAX_CUSTOM_LOGOS:
-        raise LogoError(f"The logo library is full ({MAX_CUSTOM_LOGOS} logos). Delete some first")
-    slug = re.sub(r"[^a-z0-9]+", "-", label.lower()).strip("-")[:40] or "logo"
-    path = CUSTOM_DIR / f"{slug}-{hashlib.sha1(data).hexdigest()[:6]}{extension}"
-    if not path.exists():
-        path.write_bytes(data)
+        raise LogoError(f"The logos folder is full ({MAX_CUSTOM_LOGOS} files). Delete some first")
+    path.write_bytes(data)
     return describe("custom", path)
 
 
@@ -195,6 +232,9 @@ def fetch_pinterest_image(link: str):
 @app.route("/api/logos")
 def api_logos():
     return jsonify({"ok": True, **list_logos()})
+
+
+ensure_folder()
 
 
 @app.route("/api/logos/custom/<name>")

@@ -3,7 +3,7 @@
 import os
 from pathlib import Path
 
-VERSION = "2.6.1"
+VERSION = "2.6.2"
 DEV_MODE = os.environ.get("MC_MANAGER_DEV", "1") == "1"
 # Exit code that tells the supervisor (app.py or the Werkzeug reloader) to start the manager again.
 RESTART_EXIT_CODE = 3

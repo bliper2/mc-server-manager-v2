@@ -104,7 +104,7 @@ class ImportedLogos(AppTestCase):
                            content_type="multipart/form-data")
         body = reply.get_json()
         self.assertEqual(reply.status_code, 200, body)
-        self.assertEqual(sorted(logo["name"] for logo in body["added"]), ["My Logo", "Photo"])
+        self.assertEqual(sorted(logo["name"] for logo in body["added"]), ["My Logo", "photo"])
         self.assertEqual(len(body["skipped"]), 1)
         self.assertIn("trick.png", body["skipped"][0])
         listed = owner.get("/api/logos").get_json()["custom"]
@@ -112,15 +112,18 @@ class ImportedLogos(AppTestCase):
         served = owner.get(listed[0]["url"])
         served.close()
         self.assertEqual(served.status_code, 200)
-        self.assertIn("max-age", served.headers["Cache-Control"], "content-named files may be cached")
+        self.assertIn("no-cache", served.headers["Cache-Control"], "files in the folder can change, so the browser must revalidate")
+        self.assertTrue(served.headers.get("ETag"))
         self.assertEqual(owner.post("/api/logos/custom", data=upload(("only-bad.png", PAGE_AS_PNG)), content_type="multipart/form-data").status_code, 400)
         self.assertEqual(owner.post("/api/logos/custom", data={}, content_type="multipart/form-data").status_code, 400)
 
-    def test_the_same_image_is_stored_once(self):
+    def test_the_same_image_is_stored_once_and_a_different_one_gets_a_new_name(self):
         owner = self.owner()
         for _ in range(3):
             owner.post("/api/logos/custom", data=upload(("same.png", PNG)), content_type="multipart/form-data")
         self.assertEqual(len(owner.get("/api/logos").get_json()["custom"]), 1)
+        owner.post("/api/logos/custom", data=upload(("same.png", PNG + b"1")), content_type="multipart/form-data")
+        self.assertEqual(sorted(p.name for p in (HOME / "logos").glob("*.png")), ["same-2.png", "same.png"])
 
     def test_the_library_has_a_size_limit(self):
         owner = self.owner()
@@ -150,6 +153,53 @@ class ImportedLogos(AppTestCase):
         self.assertEqual(viewer.post("/api/logos/pinterest", json={"url": "https://pin.it/x"}).status_code, 403)
         self.assertEqual(viewer.delete("/api/logos/custom/a.png").status_code, 403)
         self.assertEqual(manager.post("/api/logos/custom", data=upload(("a.png", PNG)), content_type="multipart/form-data").status_code, 200)
+
+
+class LogosFolder(AppTestCase):
+    """The owner can drop files into the logos folder by hand."""
+
+    def test_the_folder_exists_with_a_note_and_the_note_is_not_a_logo(self):
+        import shutil
+        shutil.rmtree(HOME / "logos", ignore_errors=True)
+        self.assertEqual(logos.list_logos()["custom"], [])
+        self.assertTrue((HOME / "logos").is_dir())
+        self.assertEqual([p.name for p in (HOME / "logos").iterdir()], ["Put your logo images here.txt"])
+
+    def test_dropped_files_appear_whatever_they_are_called(self):
+        owner = self.owner()
+        folder = HOME / "logos"
+        folder.mkdir(exist_ok=True)
+        (folder / "My Server (final) #2.PNG").write_bytes(PNG)
+        (folder / "holiday photo.jpeg").write_bytes(JPEG)
+        (folder / "fake.png").write_bytes(PAGE_AS_PNG)
+        (folder / "notes.txt").write_bytes(PNG)
+        (folder / ".hidden.png").write_bytes(PNG)
+        (folder / "huge.png").write_bytes(PNG + b"0" * (logos.MAX_LOGO_BYTES + 1))
+        listed = owner.get("/api/logos").get_json()["custom"]
+        self.assertEqual(sorted(logo["name"] for logo in listed), ["My Server (final) #2", "holiday photo"])
+        first = next(logo for logo in listed if logo["name"].startswith("My Server"))
+        self.assertEqual(status_of(owner, first["url"]), 200, "names with spaces and # are served")
+        self.assertNotIn(" ", first["url"])
+
+    def test_a_dropped_file_can_be_used_for_a_server_and_removed(self):
+        folder = make_server()
+        owner = self.owner()
+        (HOME / "logos").mkdir(exist_ok=True)
+        (HOME / "logos" / "Team Logo.jpg").write_bytes(JPEG)
+        reply = owner.post("/api/server/alpha_1/logo", json={"logo": "custom/Team Logo.jpg"})
+        self.assertEqual(reply.status_code, 200, reply.get_json())
+        self.assertEqual((folder / "manager_logo.jpg").read_bytes(), JPEG)
+        self.assertEqual(owner.delete("/api/logos/custom/Team%20Logo.jpg").status_code, 200)
+        self.assertFalse((HOME / "logos" / "Team Logo.jpg").exists())
+        self.assertTrue((folder / "manager_logo.jpg").exists(), "the server keeps its own copy")
+
+    def test_names_cannot_reach_outside_the_folder(self):
+        (HOME / "logos").mkdir(exist_ok=True)
+        (HOME / "outside.png").write_bytes(PNG)
+        (HOME / "logos" / "inside.png").write_bytes(PNG)
+        for bad in ("custom/../outside.png", "custom/..\\outside.png", "custom/sub/inside.png", "custom//inside.png", "custom/.png", "custom/inside.exe", "custom/inside.png\x00"):
+            self.assertIsNone(logos.resolve_ref(bad), bad)
+        self.assertIsNotNone(logos.resolve_ref("custom/inside.png"))
 
 
 class ServerLogos(AppTestCase):

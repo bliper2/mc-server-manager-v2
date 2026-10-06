@@ -172,10 +172,11 @@ Not supported yet: Quilt, installing a pack into an existing server, importing a
 
 **Create** and each server's **Info** panel have a logo library. It holds 128 ready-made logos (emblems in 13 colour schemes and a set of pixel-art icons; search by name or filter by Combat, Royal, Nature, Build and Pixel art) and everything you add yourself under **My logos**:
 
-- **Upload images** takes several PNG, JPG or WebP files at once (4 MB each). The check is on the file's content, not its name.
+- **The `logos` folder.** Drop PNG, JPG or WebP files into the `logos` folder in the main manager folder (next to `app.py`), with any file name, then open the picker (or press **Refresh**). They appear under **My logos**. The manager creates the folder on start. Files are checked by content, up to 8 MB each; anything that is not really an image is ignored.
+- **Upload images** in the dialog does the same thing: it takes several files at once and saves them into that folder.
 - **Import pin** takes the link of a Pinterest pin (or a `pin.it` short link) and stores the pin's image in your library. Pinterest has no public search for other programs, so the **Browse Pinterest** button opens Pinterest's own search in a new tab: find a pin, copy its link, paste it here. Only `pinterest.com` pin pages and `i.pinimg.com` images are ever fetched, every redirect is checked, and the size is capped. Use only images you have the right to use.
 
-Importing or removing library logos needs the *create, import and delete servers* permission. A server keeps its own copy of the logo it uses (`manager_logo.*` in its folder), so removing a library logo never changes a server, and backups and clones include it. The bundled logos are original artwork drawn by `tools/make_logos.py` (needs Pillow; only needed to change the library), so they carry no licence.
+Importing or removing library logos needs the *create, import and delete servers* permission; the ✕ on a My logos tile deletes that file from the `logos` folder. A server keeps its own copy of the logo it uses (`manager_logo.*` in its folder), so removing a library logo never changes a server, and backups and clones include it. The bundled logos are original artwork drawn by `tools/make_logos.py` (needs Pillow; only needed to change the library), so they carry no licence.
 
 ## Health, diagnostics and alerts
 
@@ -254,6 +255,7 @@ static/css/app.css         All other styles
 static/js/                 core, servers, detail, console, files, backups, plugins, settings, staff,
                            automation, modpacks, logos, palette, boot, main (plus map.js and scene.js)
 static/logos/              The 128 bundled server logos (made by tools/make_logos.py)
+logos/                     Your own logo images (git-ignored; created on start)
 static/vendor/             Bundled Leaflet and three.js (no CDN, works offline)
 mock_rcon.py               Fake RCON server with simulated players for development
 servers/  backups/         Your data (git-ignored)
