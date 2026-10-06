@@ -136,7 +136,8 @@ class TwoFactor(AppTestCase):
         begin = client.post("/api/auth/2fa/begin").get_json()
         self.assertTrue(begin["ok"])
         self.assertTrue(begin["uri"].startswith("otpauth://totp/"))
-        code = totp.code_for_step(begin["secret"], int(time.time() // 30))
+        self.enrolled_step = int(time.time() // 30)
+        code = totp.code_for_step(begin["secret"], self.enrolled_step)
         done = client.post("/api/auth/2fa/enable", json={"code": code}).get_json()
         self.assertTrue(done["ok"], done)
         return begin["secret"], done["recovery_codes"]
@@ -156,10 +157,10 @@ class TwoFactor(AppTestCase):
         self.assertEqual(bad.status_code, 401)
 
         # the enrollment code was already used in this window, so replay must fail; the next window works
-        used = totp.code_for_step(secret, int(time.time() // 30))
+        used = totp.code_for_step(secret, self.enrolled_step)
         replay = fresh.post("/api/auth/login", json={"username": OWNER[0], "password": OWNER[1], "code": used})
         self.assertEqual(replay.status_code, 401, "a code can only be used once")
-        later = totp.code_for_step(secret, int(time.time() // 30) + 1)
+        later = totp.code_for_step(secret, self.enrolled_step + 1)
         ok = fresh.post("/api/auth/login", json={"username": OWNER[0], "password": OWNER[1], "code": later})
         self.assertTrue(ok.get_json()["ok"])
 

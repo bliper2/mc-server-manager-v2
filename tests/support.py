@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 import manager  # noqa: E402
-from manager import auth, state  # noqa: E402
+from manager import auth, state, util  # noqa: E402
 
 OWNER = ("owner", "correct horse")
 
@@ -28,6 +28,7 @@ def reset_data():
         shutil.rmtree(HOME / folder, ignore_errors=True)
         (HOME / folder).mkdir(exist_ok=True)
     auth.login_attempts.clear()
+    util._size_cache.clear()
     auth.last_seen_cache.clear()
     for name in ("running_servers", "console_logs", "console_dropped", "active_players", "playit_processes", "playit_logs",
                  "import_sessions", "backup_jobs", "update_cache", "map_cache", "started_at", "crash_times", "joined_at", "start_locks"):

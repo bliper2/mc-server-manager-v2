@@ -285,7 +285,7 @@ class Watchers(AppTestCase):
     def test_disk_endpoint(self):
         folder = make_server()
         (folder / "world.bin").write_bytes(b"0" * 2_000_000)
-        util.forget_size(folder)
+        util._size_cache.clear()
         reply = self.owner().get("/api/disk").get_json()
         self.assertGreaterEqual(reply["servers"]["alpha_1"], 1)
         self.assertIn("free_mb", reply)
