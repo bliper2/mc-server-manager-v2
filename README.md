@@ -204,6 +204,14 @@ Webhooks) and choose what to hear about: server start, stop, crash and automatic
 updates, lockouts and failed sign-ins, staff changes, resource, hang and disk alerts, and optionally players joining or leaving. The URL is stored
 in `manager_settings.json`, is never sent back to the browser, and is not overwritten by updates.
 
+### Discord status board (per server)
+
+Every server's page has a **Discord status** card. Paste a Discord webhook URL (channel settings > Integrations > Webhooks > New webhook > Copy URL) and the manager posts one message in that channel that says **Online**, **Starting up** or **Offline**, with the **address** people join on, the player count, the version and when it last changed. The message is edited in place, never re-posted, so the channel stays tidy. It updates within a few seconds of the server starting, stopping or crashing, and the player count refreshes every 5, 10, 30 or 60 minutes (or only on changes, your choice).
+
+The address shown is, in this order: what you type in **Address to show**, the Playit tunnel address when the tunnel is running, this PC's public IP with the server port, or `localhost`. The card says which one it will use. **Post now** sends the message immediately and shows Discord's answer if it fails; **Remove** deletes the message from the channel and forgets the webhook.
+
+The webhook URL is stored in `manager_settings.json` (git-ignored), is never sent back to the browser (only its last six characters), and needs the *create, import and delete servers* permission to change. If the manager itself is switched off the board cannot update, but it says Offline when the manager shuts down normally.
+
 ## Server automation
 
 Open a server and choose **Automation**:

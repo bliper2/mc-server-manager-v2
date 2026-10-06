@@ -69,7 +69,7 @@ ENDPOINT_RULES = {
     "api_server_logo": "files", "api_anticheat": "files", "api_auto_update": "files", "api_rcon": "files",
     "api_backup_create": "backups", "api_backup_restore": "backups", "api_backup_delete": "backups", "api_auto_backup": "backups",
     "api_create": "manage", "api_logos_import": "manage", "api_logos_pinterest": "manage", "api_logos_delete": "manage",
-    "api_banners_import": "manage", "api_banners_pinterest": "manage", "api_banners_delete": "manage",
+    "api_status_hook": "manage", "api_status_hook_send": "manage", "api_banners_import": "manage", "api_banners_pinterest": "manage", "api_banners_delete": "manage",
     "api_server_banner": "files", "api_server_banner_remove": "files", "api_import_start": "manage", "api_import_upload": "manage", "api_import_finish": "manage",
     "api_import_cancel": "manage", "api_delete": "manage",
     "api_staff_create": "owner", "api_staff_reset": "owner", "api_staff_delete": "owner", "api_staff_permissions": "owner",

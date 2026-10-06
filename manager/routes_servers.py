@@ -14,7 +14,7 @@ from flask import abort, jsonify, make_response, render_template, request, send_
 from . import app
 from .auth import account_permissions, current_account, is_local_request, needs_setup
 from .config import ASSET_VERSION, BACKUPS_DIR, HEADERS, VERSION, IMPORTS_DIR, IMPORT_BATCH_BYTES, IMPORT_SESSION_TTL, MAX_RAM_MB, MIN_RAM_MB
-from . import metrics
+from . import metrics, statusboard
 from .logos import LogoError, MAX_LOGO_BYTES, install_server_logo, resolve_ref
 from .procs import ping_minecraft_server, send_command, start_playit, start_server, stop_playit, stop_server
 from .providers import download_paper, download_purpur, download_vanilla, get_paper_versions, get_purpur_versions
@@ -58,6 +58,9 @@ def api_servers():
     servers = list_servers()
     for server in servers:
         server["players"] = len(active_players.get(server["id"], [])) if server["running"] else 0
+        server.pop("playit_secret", None)  # secrets stay on the server; the panel has its own endpoints that only say whether one is set
+        if isinstance(server.get("rcon"), dict):
+            server["rcon"] = {key: value for key, value in server["rcon"].items() if key != "password"}
     return jsonify(servers)
 
 @app.route("/api/server/<sid>/ping")
@@ -308,6 +311,10 @@ def api_delete(sid):
         stop_server(sid)
     if is_playit_running(sid):
         stop_playit(sid)
+    board = statusboard.get_config(sid)
+    if board:  # take the status message out of the Discord channel too
+        statusboard.delete_message(board)
+        statusboard.drop_config(sid)
     shutil.rmtree(path, ignore_errors=True)
     shutil.rmtree(BACKUPS_DIR / sid, ignore_errors=True)
     backup_jobs.pop(sid, None)

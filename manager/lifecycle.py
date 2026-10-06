@@ -58,6 +58,15 @@ def running_server_ids() -> list:
     return [sid for sid in list(running_servers) if is_running(sid)]
 
 
+def _tell_status_boards():
+    """The servers just stopped: let the Discord status boards say so before this process ends."""
+    try:
+        from . import statusboard
+        statusboard.flush()
+    except Exception:  # noqa: BLE001 - shutting down must not fail on a webhook
+        pass
+
+
 def _shutdown_and_exit(resume: list):
     time.sleep(1.0)  # let the HTTP response that triggered this reach the browser
     threads = [threading.Thread(target=stop_server, args=(sid, False)) for sid in resume]
@@ -67,6 +76,7 @@ def _shutdown_and_exit(resume: list):
         thread.join(timeout=60)
     for sid in list(playit_processes):
         stop_playit(sid)
+    _tell_status_boards()
     sys.stdout.flush()
     sys.stderr.flush()
     os._exit(RESTART_EXIT_CODE)
@@ -85,6 +95,7 @@ def shutdown_servers():
         thread.join(timeout=60)
     for sid in list(playit_processes):
         stop_playit(sid)
+    _tell_status_boards()
 
 def begin_restart(by: str, reason: str = "restart") -> list:
     """Stop servers safely, remember which were running, then exit so the supervisor relaunches us.

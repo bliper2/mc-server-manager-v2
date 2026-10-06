@@ -47,6 +47,7 @@ EVENT_LABELS = {
     "disk_low": "Low disk space",
 }
 WEBHOOK_HOSTS = {"discord.com", "discordapp.com", "ptb.discord.com", "canary.discord.com"}
+STATUS_EVENTS = {"server_start", "server_stop", "server_crash", "server_restart", "server_hung"}  # these also wake the Discord status board
 MIN_INTERVAL = 1.2
 MAX_QUEUE = 50
 
@@ -153,6 +154,12 @@ def _run():
 def notify(event: str, detail: str = "", server_id: str | None = None, fields=None):
     """Queue a notification. Silent no-op when no webhook is set or the event is switched off."""
     global _worker
+    if server_id and event in STATUS_EVENTS:
+        try:
+            from . import statusboard  # late: the status board imports this module
+            statusboard.refresh_soon(server_id)
+        except Exception:  # noqa: BLE001 - a status board problem must never break the event that triggered it
+            pass
     settings = load_settings()
     webhook = settings["notifications"].get("webhook", "")
     if not webhook or not event_enabled(settings, event):

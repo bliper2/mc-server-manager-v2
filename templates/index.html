@@ -589,6 +589,15 @@
                 <div class="playit-actions"><button class="btn small" onclick="savePlayit()">Save settings</button><button class="btn success small" onclick="startPlayit()">Start tunnel</button><button class="btn danger small" onclick="stopPlayit()">Stop</button></div>
                 <pre id="playit-log" class="playit-log"></pre>
               </div>
+              <div class="info-card status-card" data-perm="manage">
+                <div class="playit-heading"><h3>Discord status</h3><span id="status-hook-badge" class="badge offline">Not set</span></div>
+                <p class="hint">Posts one message in a Discord channel that says whether this server is on or off, with its address and player count. The message is edited in place, so the channel stays tidy.</p>
+                <div class="form-group"><label for="status-webhook">Discord webhook URL</label><input type="password" id="status-webhook" placeholder="https://discord.com/api/webhooks/..." autocomplete="off" /><small class="field-hint" id="status-webhook-hint">In Discord: channel settings > Integrations > Webhooks > New webhook > Copy URL.</small></div>
+                <div class="form-group"><label for="status-address">Address to show</label><input type="text" id="status-address" placeholder="Leave empty to use the detected address" maxlength="100" autocomplete="off" /><small class="field-hint" id="status-detected"></small></div>
+                <div class="form-group"><label for="status-interval">Refresh the player count</label><select id="status-interval"><option value="0">Only when the server turns on or off</option><option value="5">Every 5 minutes</option><option value="10">Every 10 minutes</option><option value="30">Every 30 minutes</option><option value="60">Every hour</option></select></div>
+                <div class="playit-actions"><button class="btn primary small" onclick="saveStatusHook()">Save</button><button class="btn small" onclick="sendStatusHook()">Post now</button><button class="btn danger small" onclick="removeStatusHook()">Remove</button></div>
+                <div id="status-hook-msg" class="status-msg" role="status"></div>
+              </div>
             </div>
           </div>
         </div>

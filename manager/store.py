@@ -103,7 +103,8 @@ DEFAULT_SETTINGS = {
     },
     "curseforge": {
         "api_key": ""
-    }
+    },
+    "status": {}  # per server: the Discord status board (webhook, address, refresh interval, message id)
 }
 
 def load_settings() -> dict:

@@ -47,6 +47,7 @@ async function openServer(id) {
   startConsolePolling();
   loadPluginMods();
   loadPlayit();
+  loadStatusHook();
 }
 
 async function updateDetailPing(id) {
@@ -297,6 +298,76 @@ async function loadPlayit() {
   status.textContent = data.running ? "Running" : (data.configured ? "Ready" : "Not configured");
   status.className = `badge ${data.running ? "online" : "offline"}`;
   document.getElementById("playit-log").textContent = (data.logs || []).join("\n");
+}
+
+// Discord status board: the webhook is write-only. The server never sends it back, only a hint of its last characters.
+function setStatusHookMessage(text, ok = false) {
+  const box = document.getElementById("status-hook-msg");
+  if (!box) return;
+  box.textContent = text;
+  box.className = text ? `status-msg show ${ok ? "ok" : "err"}` : "status-msg";
+}
+
+function showStatusHook(data) {
+  const badge = document.getElementById("status-hook-badge");
+  if (!badge) return;
+  const labels = { online: "Posted: online", starting: "Posted: starting", offline: "Posted: offline" };
+  badge.textContent = data.configured ? (data.error ? "Problem" : labels[data.state] || "Connected") : "Not set";
+  badge.className = `badge ${data.configured && !data.error ? "online" : "offline"}`;
+  document.getElementById("status-webhook").value = "";
+  document.getElementById("status-webhook").placeholder = data.configured ? `Saved (ends ${data.hint}). Paste a new URL to replace it` : "https://discord.com/api/webhooks/...";
+  document.getElementById("status-address").value = data.address || "";
+  document.getElementById("status-interval").value = String(data.interval);
+  const where = { custom: "the address you typed", playit: "the Playit tunnel", public: "this PC's public IP address", local: "no public address was found" }[data.source] || "";
+  document.getElementById("status-detected").textContent = `Without an address here, the message shows ${data.detected} (${where}).`;
+  if (data.error) setStatusHookMessage(data.error);
+  else if (data.configured && data.updated) setStatusHookMessage(`Last posted ${new Date(data.updated).toLocaleString()}.`, true);
+  else setStatusHookMessage("");
+}
+
+async function loadStatusHook() {
+  if (!currentServerId || !document.getElementById("status-hook-badge")) return;
+  try {
+    showStatusHook(await requestJson(`/api/server/${currentServerId}/status-hook`));
+  } catch (error) {
+    setStatusHookMessage(error.message);
+  }
+}
+
+async function saveStatusHook() {
+  const body = { address: document.getElementById("status-address").value, interval: Number(document.getElementById("status-interval").value) };
+  const webhook = document.getElementById("status-webhook").value.trim();
+  if (webhook) body.webhook = webhook;
+  try {
+    const data = await requestJson(`/api/server/${currentServerId}/status-hook`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    showStatusHook(data);
+    showToast(webhook ? "Status board saved. It posts within a few seconds." : "Status board settings saved", "success");
+  } catch (error) {
+    setStatusHookMessage(error.message);
+    showToast(error.message, "error");
+  }
+}
+
+async function sendStatusHook() {
+  setStatusHookMessage("Posting...", true);
+  try {
+    const data = await requestJson(`/api/server/${currentServerId}/status-hook/send`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    showStatusHook(data);
+    showToast("Status message posted to Discord", "success");
+  } catch (error) {
+    setStatusHookMessage(error.message);
+    showToast(error.message, "error");
+  }
+}
+
+async function removeStatusHook() {
+  if (!await uiAsk({ title: "Remove the Discord status board?", message: "The status message is deleted from the channel and the webhook is forgotten.", confirmText: "Remove", danger: true })) return;
+  try {
+    showStatusHook(await requestJson(`/api/server/${currentServerId}/status-hook`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ webhook: "" }) }));
+    showToast("Status board removed", "success");
+  } catch (error) {
+    showToast(error.message, "error");
+  }
 }
 
 async function savePlayit() {
