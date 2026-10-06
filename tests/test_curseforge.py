@@ -187,6 +187,14 @@ class ResolvingMods(AppTestCase):
             with self.assertRaisesRegex(packtools.ModpackError, "evil.jar"):
                 curseforge.resolve_manifest_files(manifest(files=[{"projectID": 1, "fileID": 201}, {"projectID": 1, "fileID": 202}]))
 
+    def test_a_blocked_resource_pack_does_not_stop_the_install(self):
+        mods = FakeCurseForge().mods
+        mods[203] = file_record(203, "pretty-textures.zip", None, b"t")
+        fake = FakeCurseForge(mods=mods)
+        with mock.patch.object(curseforge, "cf_request", fake.cf):
+            entries = curseforge.resolve_manifest_files(manifest(files=[{"projectID": 1, "fileID": 201, "required": True}, {"projectID": 1, "fileID": 203, "required": True}]))
+        self.assertEqual([e[0] for e in entries], [["mods", "one.jar"]])
+
 
 class ServerPackExtraction(AppTestCase):
     def test_wrapper_folder_is_stripped_and_scripts_skipped(self):
@@ -355,6 +363,53 @@ class KeyAndRoutes(AppTestCase):
         self.assertEqual(seen["path"], "/mods/search")
         self.assertEqual((seen["params"]["gameId"], seen["params"]["classId"], seen["params"]["index"], seen["params"]["searchFilter"]), (432, 4471, 30, "magic"))
         self.assertEqual((hits[0]["project_id"], hits[0]["title"], hits[0]["downloads"], hits[0]["source"]), ("5", "Pack", 9, "curseforge"))
+
+    def test_a_key_that_cannot_search_falls_back_to_featured_packs(self):
+        owner = self.owner()
+        curseforge._search_blocked_until = 0.0
+        calls = []
+
+        def fake(method, path, params=None, body=None, key=None):
+            calls.append((method, path))
+            if path == "/mods/search":
+                raise curseforge.CurseForgeError("CurseForge rejected the API key (HTTP 403). Check it in Settings.")
+            if path == "/games/432":
+                return {"data": {"name": "Minecraft"}}
+            if path == "/mods/featured":
+                return {"data": {"featured": [{"id": 1, "classId": 4471, "name": "Alpha Pack", "summary": "magic"}, {"id": 2, "classId": 6, "name": "A Mod"}],
+                                 "popular": [{"id": 3, "classId": 4471, "name": "Beta Pack", "summary": "tech"}],
+                                 "recentlyUpdated": [{"id": 1, "classId": 4471, "name": "Alpha Pack", "summary": "magic"}]}}
+            raise AssertionError(path)
+
+        with mock.patch.object(curseforge, "cf_request", fake):
+            reply = owner.get("/api/curseforge/search?q=").get_json()
+            self.assertEqual([h["title"] for h in reply["hits"]], ["Alpha Pack", "Beta Pack"], "only modpacks, no duplicates")
+            self.assertFalse(reply["search_available"])
+            self.assertIn("Project ID", reply["note"])
+            filtered = owner.get("/api/curseforge/search?q=tech").get_json()["hits"]
+            self.assertEqual([h["title"] for h in filtered], ["Beta Pack"])
+            searches = [c for c in calls if c[1] == "/mods/search"]
+        self.assertEqual(len(searches), 1, "after one refusal the search endpoint is not hammered again")
+        curseforge._search_blocked_until = 0.0
+
+    def test_a_dead_key_is_still_reported_as_rejected(self):
+        owner = self.owner()
+        curseforge._search_blocked_until = 0.0
+        with mock.patch.object(curseforge, "cf_request", side_effect=curseforge.CurseForgeError("CurseForge rejected the API key (HTTP 403). Check it in Settings.")):
+            reply = owner.get("/api/curseforge/search?q=x")
+        self.assertEqual(reply.status_code, 400)
+        self.assertIn("rejected", reply.get_json()["error"])
+
+    def test_open_a_pack_by_project_id(self):
+        owner = self.owner()
+        mod = {"id": 715572, "classId": 4471, "name": "All the Mods 9", "summary": "kitchen sink", "downloadCount": 5, "logo": {"thumbnailUrl": "https://media.forgecdn.net/a.png"}, "authors": [{"name": "ATM"}]}
+        with mock.patch.object(curseforge, "cf_request", return_value={"data": mod}):
+            pack = owner.get("/api/curseforge/pack/715572").get_json()["pack"]
+            self.assertEqual((pack["project_id"], pack["title"]), ("715572", "All the Mods 9"))
+        with mock.patch.object(curseforge, "cf_request", return_value={"data": {**mod, "classId": 6}}):
+            reply = owner.get("/api/curseforge/pack/238222")
+        self.assertEqual(reply.status_code, 400)
+        self.assertIn("not a modpack", reply.get_json()["error"])
 
     def test_api_errors_become_readable_messages(self):
         def response(status):

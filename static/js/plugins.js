@@ -188,6 +188,27 @@ function listingUrl(type, query, offset) {
     : `/api/modrinth/featured?type=${type}&offset=${offset}`;
 }
 
+// Shown above CurseForge lists when the key cannot search and only featured packs are available.
+function showCurseForgeNote(data) {
+  const note = document.getElementById("cf-note");
+  note.hidden = !data.note;
+  note.textContent = data.note || "";
+}
+
+async function openCurseForgeById() {
+  const field = document.getElementById("cf-project-id");
+  const id = field.value.trim();
+  if (!/^\d{3,9}$/.test(id)) { showToast("Enter the numeric Project ID from the pack's CurseForge page", "warning"); return; }
+  if (!curseforgeConfigured) { showToast("Add your CurseForge API key in Settings first", "warning"); return; }
+  try {
+    const data = await requestJson(`/api/curseforge/pack/${id}`);
+    if (!data.ok) throw new Error(data.error);
+    openModpackDialog(data.pack.project_id, data.pack.title, data.pack.icon_url, "curseforge");
+  } catch (error) {
+    showToast(error.message, "error");
+  }
+}
+
 const CURSEFORGE_HINT = `<div class="empty">Add a free CurseForge API key in <a href="#" onclick="switchTab('settings'); return false;">Settings</a> to browse CurseForge modpacks.</div>`;
 
 function projectCard(h, type, i, cls) {
@@ -219,8 +240,16 @@ async function searchModrinth() {
   searchState.done = false;
   results.innerHTML = '<div class="loading">Searching...</div>';
   try {
+    if (type === "cfpack" && /^\d{3,9}$/.test(q)) {  // a bare number is a CurseForge project ID
+      const found = await requestJson(`/api/curseforge/pack/${q}`);
+      if (!found.ok) throw new Error(found.error);
+      searchState.done = true;
+      results.innerHTML = projectCard(found.pack, "cfpack", 0, "result-card");
+      return;
+    }
     const data = await (await fetch(listingUrl(type, q, 0))).json();
     if (data.ok === false) throw new Error(data.error);
+    if (type === "cfpack") showCurseForgeNote(data);
     const hits = data.hits || [];
     searchState.offset = hits.length;
     searchState.done = hits.length < PAGE_SIZE;
@@ -267,9 +296,10 @@ async function loadFeatured() {
     try {
       const data = await (await fetch(listingUrl(type, "", 0))).json();
       if (data.ok === false) throw new Error(data.error);
+      if (type === "cfpack") showCurseForgeNote(data);
       const hits = data.hits || [];
       featuredState[type].offset = hits.length;
-      featuredState[type].done = hits.length < (type === "cfpack" ? 30 : PAGE_SIZE);
+      featuredState[type].done = data.search_available === false || hits.length < (type === "cfpack" ? 30 : PAGE_SIZE);
       list.innerHTML = hits.length
         ? hits.map((h, i) => projectCard(h, type, i, "featured-item")).join("")
         : '<div class="empty">No projects found</div>';

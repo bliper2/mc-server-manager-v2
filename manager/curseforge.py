@@ -96,13 +96,52 @@ def simplify(mod: dict) -> dict:
     }
 
 
+SEARCH_BLOCKED_NOTE = ("CurseForge has not enabled search for this API key (everything else works), so only featured packs are listed. "
+                       "To use any other pack, open its CurseForge page and enter its Project ID in the box above.")
+_search_blocked_until = 0.0
+
+
+def featured_packs() -> list:
+    """Modpacks from CurseForge's featured, popular and recently-updated lists. These work for every key."""
+    groups = cf_request("POST", "/mods/featured", body={"gameId": GAME_ID, "excludedModIds": []}).get("data") or {}
+    seen, packs = set(), []
+    for name in ("featured", "popular", "recentlyUpdated"):
+        for mod in groups.get(name, []):
+            if mod.get("classId") == MODPACK_CLASS and mod["id"] not in seen:
+                seen.add(mod["id"])
+                packs.append(simplify(mod))
+    return packs
+
+
 def search_packs(query: str, offset: int) -> dict:
+    """Searches CurseForge. Some keys are refused on /mods/search; then the featured list stands in and the answer says so."""
+    global _search_blocked_until
     params = {"gameId": GAME_ID, "classId": MODPACK_CLASS, "pageSize": 30, "index": max(0, offset),
               "sortField": 2 if query else 6, "sortOrder": "desc"}
     if query:
         params["searchFilter"] = query
-    data = cf_request("GET", "/mods/search", params)
-    return {"hits": [simplify(mod) for mod in data.get("data", [])]}
+    if time.time() >= _search_blocked_until:
+        try:
+            data = cf_request("GET", "/mods/search", params)
+            return {"hits": [simplify(mod) for mod in data.get("data", [])]}
+        except CurseForgeError as exc:
+            if "rejected" not in str(exc):
+                raise
+            # The same key may work elsewhere, so tell a dead key from a key that cannot search.
+            cf_request("GET", f"/games/{GAME_ID}")
+            _search_blocked_until = time.time() + 600
+    packs = featured_packs()
+    if query:
+        needle = query.lower()
+        packs = [p for p in packs if needle in p["title"].lower() or needle in p["description"].lower()]
+    return {"hits": packs if offset == 0 else [], "search_available": False, "note": SEARCH_BLOCKED_NOTE}
+
+
+def pack_by_id(mod_id: int) -> dict:
+    mod = cf_request("GET", f"/mods/{mod_id}").get("data") or {}
+    if mod.get("classId") != MODPACK_CLASS:
+        raise CurseForgeError("That project is not a modpack")
+    return simplify(mod)
 
 
 def classify(file: dict) -> dict:
@@ -185,13 +224,13 @@ def resolve_manifest_files(manifest: dict) -> list:
     for file_id in ids:
         info = infos.get(file_id)
         name = (info or {}).get("fileName") or f"file {file_id}"
+        if info and not name.lower().endswith(".jar"):
+            continue  # shaders and resource packs have no use on a server, so a block on them does not matter
         url = download_address(info) if info and info.get("isAvailable", True) else None
         parts = sanitize_relative_parts(name) if info else []
         if not url or len(parts) != 1:
             blocked.append(name)
             continue
-        if not name.lower().endswith(".jar"):
-            continue  # shaders and resource packs have no use on a server
         entries.append((["mods", parts[0]], [url], sha1_of(info), None))
     if blocked:
         shown = ", ".join(blocked[:8]) + (f" and {len(blocked) - 8} more" if len(blocked) > 8 else "")
@@ -287,6 +326,14 @@ def api_curseforge_status():
 def api_curseforge_search():
     try:
         return jsonify({"ok": True, **search_packs(request.args.get("q", "").strip()[:80], request.args.get("offset", 0, type=int))})
+    except ModpackError as exc:
+        return failure(exc)
+
+
+@app.route("/api/curseforge/pack/<int:mod_id>")
+def api_curseforge_pack(mod_id):
+    try:
+        return jsonify({"ok": True, "pack": pack_by_id(mod_id)})
     except ModpackError as exc:
         return failure(exc)
 
