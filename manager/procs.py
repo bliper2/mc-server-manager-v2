@@ -1,5 +1,6 @@
 """Starting, stopping and talking to Minecraft and Playit processes."""
 
+import os
 import re
 import socket
 import struct
@@ -7,6 +8,7 @@ import subprocess
 import threading
 import time
 from datetime import datetime
+from pathlib import Path
 
 from .config import MAX_RAM_MB, MIN_RAM_MB
 
@@ -48,7 +50,17 @@ def launch_settings(meta: dict) -> dict:
     flags, _ = parse_custom_flags(stored.get("custom_flags", ""))
     return {"flags": mode, "custom_flags": " ".join(flags)}
 
-def jvm_command(java: str, meta: dict, jar_path, ram_mb: int) -> list:
+def args_file(meta: dict, server_dir):
+    """The start-up arguments file of a Forge or NeoForge server, or None for a plain jar server."""
+    entry = meta.get("entry")
+    if not isinstance(entry, dict) or entry.get("kind") != "args":
+        return None
+    relative = str(entry.get("dir") or "").strip("/")
+    if not relative or ".." in relative.split("/"):
+        return None
+    return Path(server_dir) / relative / ("win_args.txt" if os.name == "nt" else "unix_args.txt")
+
+def jvm_command(java: str, meta: dict, jar_path, ram_mb: int, server_dir=None) -> list:
     ram_mb = max(MIN_RAM_MB, min(MAX_RAM_MB, int(ram_mb)))
     launch = launch_settings(meta)
     command = [java]
@@ -59,6 +71,10 @@ def jvm_command(java: str, meta: dict, jar_path, ram_mb: int) -> list:
         command.extend(AIKAR_FLAGS)
     elif launch["flags"] == "custom":
         command.extend(launch["custom_flags"].split())
+    arguments = args_file(meta, server_dir) if server_dir is not None else None
+    if arguments is not None:
+        extra = ["@user_jvm_args.txt"] if (Path(server_dir) / "user_jvm_args.txt").exists() else []
+        return command + extra + ["@" + arguments.relative_to(server_dir).as_posix(), "nogui"]
     return command + ["-jar", str(jar_path), "nogui"]
 
 def encode_varint(value):
@@ -182,7 +198,11 @@ def _start_server(server_id, ram_mb, automatic):
     meta = load_meta(server_id)
     jar_name = meta.get("jar", "server.jar")
     jar_path = path / jar_name
-    if not jar_path.exists():
+    arguments = args_file(meta, path)
+    if arguments is not None:
+        if not arguments.exists():
+            return False, f"Start-up file missing: {arguments.relative_to(path).as_posix()}. Reinstall the pack's loader."
+    elif not jar_path.exists():
         return False, f"JAR missing: {jar_name}"
     required = required_java_major(meta.get("version"))
     java, major = choose_java(required)
@@ -194,7 +214,7 @@ def _start_server(server_id, ram_mb, automatic):
     if meta.get("eula_accepted") is False:
         return False, "Accept the Minecraft EULA first (https://aka.ms/MinecraftEULA). Servers created before this check count as accepted."
     (path / "eula.txt").write_text("eula=true\n", encoding="utf-8")
-    cmd = jvm_command(java, meta, jar_path, ram_mb)
+    cmd = jvm_command(java, meta, jar_path, ram_mb, path)
     try:
         process = subprocess.Popen(cmd, cwd=str(path), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, stdin=subprocess.PIPE)
     except FileNotFoundError:

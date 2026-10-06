@@ -81,8 +81,8 @@ roughly ordered by value inside each group.
 
 ## Shipped since v2.3.0
 
-- [x] Modpack support in Plugins & Mods: browse Modrinth modpacks and create a Fabric server from one, with checksums, safe paths and a progress bar.
-  Still to do for modpacks: Forge, NeoForge and Quilt packs (they need their installers run), CurseForge packs, and updating an installed pack in place.
+- [x] Modpack support in Plugins & Mods: browse Modrinth and CurseForge modpacks and create a server from one (Fabric, Forge and NeoForge), with checksums, safe paths and a progress bar.
+  Still to do for modpacks: Quilt, installing into an existing server, importing a local pack file, and updating an installed pack in place.
 
 ## Backlog
 

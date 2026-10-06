@@ -97,9 +97,9 @@ def modrinth_search(query, project_type="plugin", limit=24, offset=0, game_versi
             if loader:
                 facets.append([f"categories:{loader}"])
         elif project_type == "modpack":
-            # Only packs the manager can run: Fabric, and not client-only.
+            # Only packs the manager can run: Fabric, Forge or NeoForge, and not client-only.
             facets.append(["project_type:modpack"])
-            facets.append(["categories:fabric"])
+            facets.append(["categories:fabric", "categories:forge", "categories:neoforge"])
             facets.append(["server_side:required", "server_side:optional"])
         if game_version:
             facets.append([f"versions:{game_version}"])

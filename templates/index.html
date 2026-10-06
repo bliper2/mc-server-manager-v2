@@ -315,11 +315,11 @@
       <section id="tab-browser" class="tab">
         <header class="page-header">
           <h1>Plugins & Mods</h1>
-          <p class="subtitle">Modrinth · plugins and mods install to the selected server; a modpack creates a new server</p>
+          <p class="subtitle">Modrinth and CurseForge · plugins and mods install to the selected server; a modpack creates a new server</p>
         </header>
         <div class="browser-controls">
           <input type="text" id="search-q" placeholder="Search..." />
-          <select id="search-type" onchange="syncSearchType()"><option value="plugin">Plugins</option><option value="mod">Mods</option><option value="modpack">Modpacks</option></select>
+          <select id="search-type" onchange="syncSearchType()"><option value="plugin">Plugins</option><option value="mod">Mods</option><option value="modpack">Modpacks (Modrinth)</option><option value="cfpack">Modpacks (CurseForge)</option></select>
           <select id="search-server" aria-label="Target server"><option value="">Target server...</option></select>
           <button class="btn primary" onclick="searchModrinth()">Search</button>
         </div>
@@ -327,7 +327,8 @@
         <div class="featured-grid">
           <section class="featured-section"><div class="featured-section-heading"><h2>Most downloaded plugins</h2><span class="badge type">PLUGINS</span></div><div id="featured-plugins" class="featured-list"><div class="loading">Loading plugins...</div></div></section>
           <section class="featured-section"><div class="featured-section-heading"><h2>Most downloaded mods</h2><span class="badge type">MODS</span></div><div id="featured-mods" class="featured-list"><div class="loading">Loading mods...</div></div></section>
-          <section class="featured-section featured-wide"><div class="featured-section-heading"><h2>Popular modpacks</h2><span class="badge type">FABRIC &middot; SERVER READY</span></div><div id="featured-modpacks" class="featured-list"><div class="loading">Loading modpacks...</div></div></section>
+          <section class="featured-section featured-wide"><div class="featured-section-heading"><h2>Popular modpacks on Modrinth</h2><span class="badge type">FABRIC &middot; FORGE &middot; NEOFORGE</span></div><div id="featured-modpacks" class="featured-list"><div class="loading">Loading modpacks...</div></div></section>
+          <section class="featured-section featured-wide"><div class="featured-section-heading"><h2>Popular modpacks on CurseForge</h2><span class="badge type">NEEDS AN API KEY</span></div><div id="featured-curseforge" class="featured-list"><div class="loading">Loading modpacks...</div></div></section>
         </div>
         <div id="search-results" class="results-list"><div class="empty">Search above</div></div>
       </section>
@@ -407,6 +408,14 @@
           <section class="settings-card">
             <div class="settings-card-heading"><div><span class="eyebrow">Owner only</span><h2>Manager log</h2></div><button class="btn small" onclick="loadManagerLog()">Refresh</button></div>
             <pre id="manager-log" class="playit-log tall-log">Loading...</pre>
+          </section>
+        </div>
+        <div class="settings-layout manager-update-layout" data-owner-only>
+          <section class="settings-card span-2">
+            <div class="settings-card-heading"><div><span class="eyebrow">Owner only</span><h2>CurseForge</h2></div><span id="cf-badge" class="badge offline">Not set</span></div>
+            <p class="hint">Lets you browse and install CurseForge modpacks. Create a free API key at <a href="https://console.curseforge.com/" target="_blank" rel="noopener">console.curseforge.com</a> and paste it here. It is stored on this PC only and never shown again. Mods whose authors turned off third-party downloads cannot be installed automatically; the manager tells you which ones.</p>
+            <div class="inline-form"><input type="password" id="cf-key" placeholder="Paste your CurseForge API key" autocomplete="off" /><button class="btn primary small" onclick="saveCurseForgeKey(this)">Save</button><button class="btn danger small" onclick="removeCurseForgeKey()">Remove</button></div>
+            <p class="hint" id="cf-hint"></p>
           </section>
         </div>
         <div class="settings-layout manager-update-layout" data-owner-only>
@@ -794,7 +803,8 @@
       <img id="mp-icon" alt="" hidden />
       <div><span class="eyebrow">Modpack</span><h3 id="mp-title">Create a server</h3></div>
     </div>
-    <p class="hint">Creates a new <strong>Fabric</strong> server with the pack's mods and settings. Client-only mods are skipped and every file is checked against its checksum.</p>
+    <p class="hint" id="mp-intro">Creates a new server with the pack's mods and settings. Every file is checked against its checksum.</p>
+    <div class="notice info" id="mp-note" hidden></div>
     <div class="form-group"><label for="mp-version">Pack version</label><select id="mp-version"><option>Loading...</option></select></div>
     <div class="form-row">
       <div class="form-group"><label for="mp-name">Server name</label><input type="text" id="mp-name" maxlength="40" /></div>

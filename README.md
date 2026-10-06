@@ -152,18 +152,19 @@ Point `MC_MANAGER_REPO` at another `owner/name` to follow a fork. A copy cloned 
 - **Properties:** every known key has a description and the right kind of input, with a filter box.
 - **EULA:** creating a server needs a tick on "I accept the Minecraft EULA".
 
-## Modpacks
+## Modpacks (Modrinth and CurseForge)
 
-**Plugins & Mods** has a *Modpacks* option in the search box and a *Popular modpacks* list of Modrinth packs that run on a server (Fabric, not client-only). **Create server** on a pack asks for a pack version, a name, a port and memory (modpacks need 4 GB or more), then installs in the background with a progress bar:
+**Plugins & Mods** can create a server from a modpack. The search box has *Modpacks (Modrinth)* and *Modpacks (CurseForge)*, and the page lists popular packs from both. **Create server** asks for a pack version, a name, a port and memory (modpacks need 4 GB or more), then installs in the background with a progress bar that survives closing the dialog or reloading the page.
 
-1. Downloads the `.mrpack` and checks its checksum.
-2. Installs the Fabric server launcher for the pack's Minecraft and loader versions.
-3. Downloads every mod the pack lists (four at a time), skipping client-only ones, and verifies each against its SHA-1 (and SHA-512 when given). Any mismatch cancels the whole install and removes the half-built server.
-4. Copies the pack's `overrides/` and `server-overrides/` (configs, scripts) into the server.
+**Supported mod loaders: Fabric, Forge and NeoForge.** Quilt packs are refused with a message naming the loader. Forge and NeoForge are installed by running their official installer once (it needs the right Java; Settings > Java can install it). Minecraft 1.17 and newer Forge/NeoForge servers start from the installer's arguments file, older Forge from its jar. NeoForge for Minecraft 1.20.1 uses an older layout the manager does not handle.
 
-Safety: downloads only from the hosts the `.mrpack` specification allows (`cdn.modrinth.com`, `github.com`, `raw.githubusercontent.com`, `gitlab.com`) over HTTPS, size and file-count limits, paths that escape the server folder or overwrite the manager's own files are refused, and only one pack installs at a time. It needs the *create, import and delete servers* permission. The new server shows its pack under **Info**.
+**Modrinth packs (`.mrpack`)** need no account. The manager downloads the pack, installs the loader, downloads every server-side mod (four at a time, skipping client-only ones) and applies the pack's `overrides/` and `server-overrides/`.
 
-Not supported yet: Forge, NeoForge and Quilt packs (the manager says which loader a pack needs), CurseForge packs, installing a pack into an existing server, and updating an installed pack.
+**CurseForge packs** need your own free API key from [console.curseforge.com](https://console.curseforge.com/), saved under *Settings > CurseForge* (owner only; stored in `manager_settings.json`, never shown again). When a pack version has an official **server pack**, that is used. Otherwise the server is built from the client pack's mod list, and the manager warns that client-only mods may need removing. Some mod authors turn off third-party downloads; the manager does not work around that. It names those mods before creating anything, so you can pick a version with a server pack or download those files yourself.
+
+Safety for both: HTTPS only; downloads only from the hosts each format allows (Modrinth: `cdn.modrinth.com`, `github.com`, `raw.githubusercontent.com`, `gitlab.com`; CurseForge: `edge.forgecdn.net`, `mediafilez.forgecdn.net`, `media.forgecdn.net`; loaders: `maven.minecraftforge.net`, `maven.neoforged.net`, `meta.fabricmc.net`); every file is checked against the checksum the pack or API gives, and one mismatch cancels the install and removes the half-built server; size and file-count limits; paths that escape the server folder or overwrite the manager's own files are refused; one pack installs at a time; and it needs the *create, import and delete servers* permission. The new server shows its pack and source under **Info**.
+
+Not supported yet: Quilt, installing a pack into an existing server, importing a local pack file, and updating an installed pack in place.
 
 ## Health, diagnostics and alerts
 
@@ -231,7 +232,8 @@ manager/                   Application code (Flask routes register themselves on
   backups.py  providers.py   Backups; jar downloads and the Modrinth client
   rconmap.py                 RCON client, live map, markers
   updater.py  lifecycle.py   Self-update; restarting the manager
-  routes_servers.py  routes_files.py  servertools.py  modpacks.py  automation.py   HTTP routes and background jobs
+  routes_servers.py  routes_files.py  servertools.py  automation.py   HTTP routes and background jobs
+  modpacks.py  curseforge.py  loaders.py  packtools.py   Modpack install: Modrinth and CurseForge sources, Fabric/Forge/NeoForge loaders, shared safe downloads
   ops.py  web.py             Health, diagnostics, log, disk; security headers, gzip, caching
 tests/                     Unit tests (python -m unittest discover -s tests -t .)
 templates/                 index.html (the panel) and login.html

@@ -174,17 +174,29 @@ const searchState = { q: "", type: "plugin", offset: 0, loading: false, done: fa
 const featuredState = {
   plugin: { offset: 0, loading: false, done: false },
   mod: { offset: 0, loading: false, done: false },
-  modpack: { offset: 0, loading: false, done: false }
+  modpack: { offset: 0, loading: false, done: false },
+  cfpack: { offset: 0, loading: false, done: false }
 };
-const FEATURED_LISTS = { plugin: "featured-plugins", mod: "featured-mods", modpack: "featured-modpacks" };
+const FEATURED_LISTS = { plugin: "featured-plugins", mod: "featured-mods", modpack: "featured-modpacks", cfpack: "featured-curseforge" };
+let curseforgeConfigured = false;
+
+// One place that knows which service answers which kind of search.
+function listingUrl(type, query, offset) {
+  if (type === "cfpack") return `/api/curseforge/search?q=${encodeURIComponent(query)}&offset=${offset}`;
+  return query
+    ? `/api/modrinth/search?q=${encodeURIComponent(query)}&type=${type}&offset=${offset}&limit=${PAGE_SIZE}`
+    : `/api/modrinth/featured?type=${type}&offset=${offset}`;
+}
+
+const CURSEFORGE_HINT = `<div class="empty">Add a free CurseForge API key in <a href="#" onclick="switchTab('settings'); return false;">Settings</a> to browse CurseForge modpacks.</div>`;
 
 function projectCard(h, type, i, cls) {
   return `
       <article class="${cls}" style="--i:${i % 12}">
         ${h.icon_url ? `<img src="${escapeHtml(h.icon_url)}" alt="" loading="lazy" onerror="this.style.display='none'" />` : '<div class="project-icon"></div>'}
         <div class="info"><h4>${escapeHtml(h.title)}</h4><p>${escapeHtml(h.description || "")}</p><div class="stats">↓ ${(h.downloads || 0).toLocaleString()} downloads${h.author ? ` · ${escapeHtml(h.author)}` : ""}</div></div>
-        ${type === "modpack"
-          ? `<button class="btn primary small" data-perm="manage" onclick="openModpackDialog(${jsArg(h.project_id || h.slug)}, ${jsArg(h.title)}, ${jsArg(h.icon_url || "")})">Create server</button>`
+        ${type === "modpack" || type === "cfpack"
+          ? `<button class="btn primary small" data-perm="manage" onclick="openModpackDialog(${jsArg(h.project_id || h.slug)}, ${jsArg(h.title)}, ${jsArg(h.icon_url || "")}, ${jsArg(type === "cfpack" ? "curseforge" : "modrinth")})">Create server</button>`
           : `<button class="btn primary small" onclick="installProject(${jsArg(h.project_id || h.slug)}, ${jsArg(h.title)}, ${jsArg(type)})">Install</button>`}
       </article>`;
 }
@@ -197,13 +209,18 @@ async function searchModrinth() {
     showToast("Please enter a search term", "warning");
     return;
   }
+  if (type === "cfpack" && !curseforgeConfigured) {
+    results.innerHTML = CURSEFORGE_HINT;
+    return;
+  }
   searchState.q = q;
   searchState.type = type;
   searchState.offset = 0;
   searchState.done = false;
   results.innerHTML = '<div class="loading">Searching...</div>';
   try {
-    const data = await (await fetch(`/api/modrinth/search?q=${encodeURIComponent(q)}&type=${type}&offset=0&limit=${PAGE_SIZE}`)).json();
+    const data = await (await fetch(listingUrl(type, q, 0))).json();
+    if (data.ok === false) throw new Error(data.error);
     const hits = data.hits || [];
     searchState.offset = hits.length;
     searchState.done = hits.length < PAGE_SIZE;
@@ -220,9 +237,9 @@ async function loadMoreSearch() {
   if (searchState.loading || searchState.done || !searchState.q) return;
   searchState.loading = true;
   try {
-    const data = await (await fetch(`/api/modrinth/search?q=${encodeURIComponent(searchState.q)}&type=${searchState.type}&offset=${searchState.offset}&limit=${PAGE_SIZE}`)).json();
+    const data = await (await fetch(listingUrl(searchState.type, searchState.q, searchState.offset))).json();
     const hits = data.hits || [];
-    searchState.done = hits.length < PAGE_SIZE;
+    searchState.done = hits.length < (searchState.type === "cfpack" ? 30 : PAGE_SIZE);
     if (hits.length) {
       document.getElementById("search-results").insertAdjacentHTML("beforeend",
         hits.map((h, i) => projectCard(h, searchState.type, searchState.offset + i, "result-card")).join(""));
@@ -239,19 +256,26 @@ async function loadFeatured() {
   const types = Object.keys(FEATURED_LISTS);
   if (!types.every(type => document.getElementById(FEATURED_LISTS[type]))) return;
   types.forEach(type => { featuredState[type] = { offset: 0, loading: false, done: false }; });
+  try { curseforgeConfigured = Boolean((await requestJson("/api/curseforge/status")).configured); } catch { curseforgeConfigured = false; }
   await Promise.all(types.map(async type => {
     const list = document.getElementById(FEATURED_LISTS[type]);
+    if (type === "cfpack" && !curseforgeConfigured) {
+      featuredState.cfpack.done = true;
+      list.innerHTML = CURSEFORGE_HINT;
+      return;
+    }
     try {
-      const data = await (await fetch(`/api/modrinth/featured?type=${type}&offset=0`)).json();
+      const data = await (await fetch(listingUrl(type, "", 0))).json();
+      if (data.ok === false) throw new Error(data.error);
       const hits = data.hits || [];
       featuredState[type].offset = hits.length;
-      featuredState[type].done = hits.length < PAGE_SIZE;
+      featuredState[type].done = hits.length < (type === "cfpack" ? 30 : PAGE_SIZE);
       list.innerHTML = hits.length
         ? hits.map((h, i) => projectCard(h, type, i, "featured-item")).join("")
         : '<div class="empty">No projects found</div>';
     } catch (e) {
       featuredState[type].done = true;
-      list.innerHTML = `<div class="empty">Featured ${type}s unavailable</div>`;
+      list.innerHTML = `<div class="empty">${escapeHtml(e.message || "Unavailable")}</div>`;
     }
   }));
 }
@@ -262,9 +286,9 @@ async function loadMoreFeatured(type) {
   if (!state || !list || state.loading || state.done) return;
   state.loading = true;
   try {
-    const data = await (await fetch(`/api/modrinth/featured?type=${type}&offset=${state.offset}`)).json();
+    const data = await (await fetch(listingUrl(type, "", state.offset))).json();
     const hits = data.hits || [];
-    state.done = hits.length < PAGE_SIZE;
+    state.done = hits.length < (type === "cfpack" ? 30 : PAGE_SIZE);
     if (hits.length) {
       list.insertAdjacentHTML("beforeend",
         hits.map((h, i) => projectCard(h, type, state.offset + i, "featured-item")).join(""));
@@ -279,7 +303,7 @@ async function loadMoreFeatured(type) {
 
 // A modpack creates its own server, so the "target server" choice only applies to plugins and mods.
 function syncSearchType() {
-  const modpack = document.getElementById("search-type").value === "modpack";
+  const modpack = ["modpack", "cfpack"].includes(document.getElementById("search-type").value);
   document.getElementById("search-server").hidden = modpack;
 }
 

@@ -77,6 +77,9 @@ DEFAULT_SETTINGS = {
     "notifications": {
         "webhook": "",
         "events": {}
+    },
+    "curseforge": {
+        "api_key": ""
     }
 }
 

@@ -9,7 +9,7 @@ from unittest import mock
 
 import requests
 
-from manager import modpacks, state
+from manager import loaders, modpacks, packtools, state
 from tests.support import HOME, AppTestCase, make_server
 
 PACK_URL = "https://cdn.modrinth.com/data/pack1/versions/ver1/Pack-1.0.mrpack"
@@ -76,7 +76,7 @@ class InstallPipeline(AppTestCase):
         job_id = "job1"
         state.modpack_jobs[job_id] = {"state": "running", "message": "", "progress": 0, "server_id": None, "updated": time.time()}
         modpacks._install_lock.acquire()
-        with mock.patch.object(modpacks, "modrinth_version", return_value=version_info(pack)), mock.patch.object(modpacks, "_stream", fake_internet(pack, **net)):
+        with mock.patch.object(modpacks, "modrinth_version", return_value=version_info(pack)), mock.patch.object(packtools, "_stream", fake_internet(pack, **net)):
             modpacks.install_modpack(job_id, "ver1", "My Pack", 6144, 25570, "Friendly Title")
         return state.modpack_jobs[job_id]
 
@@ -87,11 +87,12 @@ class InstallPipeline(AppTestCase):
         self.assertEqual((folder / "mods" / "a.jar").read_bytes(), MOD_A)
         self.assertEqual((folder / "mods" / "b.jar").read_bytes(), MOD_B)
         self.assertFalse((folder / "mods" / "minimap.jar").exists(), "client-only files are skipped")
-        self.assertEqual((folder / modpacks.LAUNCHER).read_bytes(), b"fabric-launcher")
+        self.assertEqual((folder / loaders.LAUNCHER).read_bytes(), b"fabric-launcher")
         self.assertEqual((folder / "config" / "pack.toml").read_text(), "from overrides")
         self.assertEqual((folder / "config" / "both.toml").read_text(), "server version", "server-overrides win")
         meta = json.loads((folder / "manager_meta.json").read_text())
-        self.assertEqual((meta["type"], meta["version"], meta["jar"], meta["ram"], meta["port"]), ("fabric", "1.20.1", modpacks.LAUNCHER, 6144, 25570))
+        self.assertEqual((meta["type"], meta["version"], meta["jar"], meta["ram"], meta["port"]), ("fabric", "1.20.1", loaders.LAUNCHER, 6144, 25570))
+        self.assertEqual(meta["modpack"]["source"], "modrinth")
         self.assertEqual((meta["modpack"]["mods"], meta["modpack"]["name"]), (2, "Friendly Title"))
         self.assertTrue(meta["eula_accepted"])
         self.assertIn("server-port=25570", (folder / "server.properties").read_text())
@@ -110,12 +111,15 @@ class InstallPipeline(AppTestCase):
         self.assertIn("checksum", job["message"])
         self.assertEqual(list((HOME / "servers").iterdir()), [], "a failed install leaves no server behind")
 
-    def test_other_loaders_are_refused_with_a_reason(self):
-        for loader, label in (("neoforge", "NeoForge"), ("forge", "Forge"), ("quilt-loader", "Quilt")):
-            job = self.run_install(build_pack(dependencies={"minecraft": "1.20.1", loader: "1.0"}))
-            self.assertEqual(job["state"], "error")
-            self.assertIn(label, job["message"])
+    def test_quilt_is_refused_with_a_reason(self):
+        job = self.run_install(build_pack(dependencies={"minecraft": "1.20.1", "quilt-loader": "0.20.0"}))
+        self.assertEqual(job["state"], "error")
+        self.assertIn("Quilt", job["message"])
         self.assertEqual(list((HOME / "servers").iterdir()), [])
+
+    def test_a_pack_without_a_loader_is_refused(self):
+        job = self.run_install(build_pack(dependencies={"minecraft": "1.20.1"}))
+        self.assertIn("mod loader", job["message"])
 
     def test_path_traversal_in_the_index_is_refused(self):
         for bad in ("../outside.jar", "mods/../../outside.jar", "C:/windows/x.jar", "server.jar", "manager_meta.json"):
@@ -157,7 +161,7 @@ class InstallPipeline(AppTestCase):
         info["files"][0]["hashes"]["sha1"] = "0" * 40
         state.modpack_jobs["j"] = {"state": "running", "message": "", "progress": 0, "server_id": None, "updated": time.time()}
         modpacks._install_lock.acquire()
-        with mock.patch.object(modpacks, "modrinth_version", return_value=info), mock.patch.object(modpacks, "_stream", fake_internet(pack)):
+        with mock.patch.object(modpacks, "modrinth_version", return_value=info), mock.patch.object(packtools, "_stream", fake_internet(pack)):
             modpacks.install_modpack("j", "ver1", "X", 4096, 25571)
         self.assertIn("checksum", state.modpack_jobs["j"]["message"])
 
@@ -197,14 +201,14 @@ class InstallRoute(AppTestCase):
         self.assertEqual(self.post(helper).status_code, 403)
         allowed = self.staff(owner, "bobby", "bobpass12", permissions=["manage"])
         pack = build_pack()
-        with self.run_inline(), mock.patch.object(modpacks, "modrinth_version", return_value=version_info(pack)), mock.patch.object(modpacks, "_stream", fake_internet(pack)):
+        with self.run_inline(), mock.patch.object(modpacks, "modrinth_version", return_value=version_info(pack)), mock.patch.object(packtools, "_stream", fake_internet(pack)):
             reply = self.post(allowed, name="By Bobby")
         self.assertTrue(reply.get_json()["ok"])
 
     def test_job_is_reported_and_unknown_jobs_404(self):
         owner = self.owner()
         pack = build_pack()
-        with self.run_inline(), mock.patch.object(modpacks, "modrinth_version", return_value=version_info(pack)), mock.patch.object(modpacks, "_stream", fake_internet(pack)):
+        with self.run_inline(), mock.patch.object(modpacks, "modrinth_version", return_value=version_info(pack)), mock.patch.object(packtools, "_stream", fake_internet(pack)):
             job = self.post(owner).get_json()["job"]
         status = owner.get(f"/api/modpacks/job/{job}").get_json()
         self.assertEqual((status["state"], status["progress"]), ("done", 100))
@@ -221,7 +225,7 @@ class InstallRoute(AppTestCase):
         finally:
             modpacks._install_lock.release()
 
-    def test_search_asks_for_server_ready_fabric_packs(self):
+    def test_search_asks_for_server_ready_packs(self):
         from manager import providers
         seen = {}
 
@@ -233,5 +237,5 @@ class InstallRoute(AppTestCase):
             providers.modrinth_search("magic", "modpack")
         facets = json.loads(seen["facets"])
         self.assertIn(["project_type:modpack"], facets)
-        self.assertIn(["categories:fabric"], facets)
+        self.assertIn(["categories:fabric", "categories:forge", "categories:neoforge"], facets)
         self.assertIn(["server_side:required", "server_side:optional"], facets)

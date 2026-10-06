@@ -72,7 +72,7 @@ ENDPOINT_RULES = {
     "api_staff_create": "owner", "api_staff_reset": "owner", "api_staff_delete": "owner", "api_staff_permissions": "owner",
     "api_staff_2fa_reset": "owner", "api_signout_all": "any", "api_diagnostics": "owner",
     "api_server_rename": "manage", "api_server_clone": "manage", "api_launch": "control", "api_fs_rename": "files",
-    "api_plugin_toggle": "files", "api_plugin_delete": "files", "api_modpack_install": "manage", "api_manager_update_settings": "owner", "api_manager_update_apply": "owner",
+    "api_plugin_toggle": "files", "api_plugin_delete": "files", "api_modpack_install": "manage", "api_curseforge_key": "owner", "api_manager_update_settings": "owner", "api_manager_update_apply": "owner",
     "api_manager_update_rollback": "owner", "api_manager_restart": "owner", "api_notifications": "owner",
     "api_notifications_test": "owner", "api_java_install": "owner",
     "api_manager_update_check": "any", "api_auth_logout": "any", "api_auth_password": "any", "api_auth_2fa_begin": "any",

@@ -386,7 +386,49 @@ async function signOutEverywhere() {
   }
 }
 
+// ----- CurseForge key -----
+
+async function loadCurseForge() {
+  if (!IS_OWNER) return;
+  try {
+    const data = await requestJson("/api/curseforge/key");
+    document.getElementById("cf-badge").textContent = data.configured ? "Connected" : "Not set";
+    document.getElementById("cf-badge").className = `badge ${data.configured ? "online" : "offline"}`;
+    document.getElementById("cf-hint").textContent = data.configured ? `A key ending ${data.hint.replace("...", "")} is saved. Paste a new key to replace it.` : "No key saved yet.";
+  } catch { /* owner-only */ }
+}
+
+async function saveCurseForgeKey(button) {
+  const field = document.getElementById("cf-key");
+  if (!field.value.trim()) { showToast("Paste your CurseForge API key first", "warning"); return; }
+  await withBusy(button, async () => {
+    try {
+      const data = await requestJson("/api/curseforge/key", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: field.value.trim() })
+      });
+      if (!data.ok) throw new Error(data.error);
+      field.value = "";
+      showToast("CurseForge connected", "success");
+      loadCurseForge();
+    } catch (error) {
+      showToast(error.message, "error");
+    }
+  });
+}
+
+async function removeCurseForgeKey() {
+  if (!(await uiConfirm("Remove the saved CurseForge key? CurseForge modpacks stop appearing until you add another.", { title: "Remove key", confirmText: "Remove", danger: true, always: true }))) return;
+  try {
+    await requestJson("/api/curseforge/key", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: "" }) });
+    showToast("Key removed", "success");
+    loadCurseForge();
+  } catch (error) {
+    showToast(error.message, "error");
+  }
+}
+
 function loadSettingsTab() {
+  loadCurseForge();
   loadManagerUpdate();
   loadTwoFactor();
   loadJava();

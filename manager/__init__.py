@@ -68,4 +68,4 @@ def handle_unexpected_error(error):
 
 
 # Imported last: each module decorates routes on `app`, so `app` must exist first.
-from . import auth, automation, backups, lifecycle, modpacks, rconmap, routes_files, ops, routes_servers, servertools, updater, web  # noqa: E402,F401
+from . import auth, automation, backups, curseforge, lifecycle, loaders, modpacks, packtools, rconmap, routes_files, ops, routes_servers, servertools, updater, web  # noqa: E402,F401

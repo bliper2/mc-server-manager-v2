@@ -2,6 +2,7 @@
 
 const MODPACK_JOB_KEY = "mc-manager-modpack-job";
 let modpackProject = null;
+let modpackSource = "modrinth";
 let modpackJobTimer = null;
 
 function suggestPort() {
@@ -15,13 +16,51 @@ function closeModpackDialog() {
   document.getElementById("modpack-dialog").close();
 }
 
-async function openModpackDialog(projectId, title, iconUrl) {
+function versionLabel(file) {
+  const loader = file.loader_name ? ` · ${file.loader_name}` : "";
+  return `${file.name} · Minecraft ${file.minecraft || "?"}${loader} · ${file.release}${file.server_pack ? " · server pack" : ""}${file.supported === false ? " · not supported" : ""}`;
+}
+
+// Normalises both services into the same list of {id, label, supported, serverPack}.
+async function loadPackVersions(source, projectId) {
+  if (source === "curseforge") {
+    const data = await (await fetch(`/api/curseforge/files/${encodeURIComponent(projectId)}`)).json();
+    if (!data.ok) throw new Error(data.error);
+    return data.files.map(file => ({ id: String(file.id), label: versionLabel(file), supported: file.supported, serverPack: file.server_pack }));
+  }
+  const versions = await (await fetch(`/api/modrinth/versions/${encodeURIComponent(projectId)}`)).json();
+  return versions.filter(version => (version.files || []).some(file => file.filename?.endsWith(".mrpack"))).map(version => {
+    const loaders = (version.loaders || []).filter(name => ["fabric", "forge", "neoforge", "quilt"].includes(name));
+    const supported = loaders.some(name => name !== "quilt");
+    return {
+      id: version.id, supported, serverPack: false,
+      label: `${version.version_number} · Minecraft ${(version.game_versions || []).slice(-1)[0] || "?"} · ${loaders.join("/") || "?"} · ${version.version_type || "release"}${supported ? "" : " · not supported"}`
+    };
+  });
+}
+
+function updateModpackNote() {
+  const note = document.getElementById("mp-note");
+  const chosen = document.getElementById("mp-version").selectedOptions[0];
+  const messages = [];
+  if (chosen?.dataset.supported === "false") messages.push("The manager cannot install this loader yet. Pick another version (Fabric, Forge and NeoForge work).");
+  else if (modpackSource === "curseforge" && chosen && chosen.dataset.serverPack !== "true") messages.push("This version has no official server pack, so it is built from the client pack. Client-only mods may need removing if the server crashes on start.");
+  note.hidden = !messages.length;
+  note.textContent = messages.join(" ");
+  document.getElementById("mp-create").disabled = !chosen || !chosen.value || chosen.dataset.supported === "false";
+}
+
+async function openModpackDialog(projectId, title, iconUrl, source = "modrinth") {
   if (!can("manage")) {
     showToast("Creating a server needs the 'create, import and delete servers' permission", "warning");
     return;
   }
   modpackProject = projectId;
+  modpackSource = source;
   document.getElementById("mp-title").textContent = title;
+  document.getElementById("mp-intro").textContent = source === "curseforge"
+    ? "Creates a new server from this CurseForge pack. The pack's official server pack is used when it has one. Every download is checked against its checksum."
+    : "Creates a new server with the pack's mods and settings. Client-only mods are skipped and every file is checked against its checksum.";
   const icon = document.getElementById("mp-icon");
   icon.hidden = !iconUrl;
   if (iconUrl) icon.src = iconUrl;
@@ -29,19 +68,20 @@ async function openModpackDialog(projectId, title, iconUrl) {
   document.getElementById("mp-port").value = suggestPort();
   document.getElementById("mp-eula").checked = false;
   document.getElementById("mp-status").className = "status-msg";
+  document.getElementById("mp-note").hidden = true;
   hideTaskProgress("mp");
   const select = document.getElementById("mp-version");
-  const create = document.getElementById("mp-create");
   select.innerHTML = "<option>Loading versions...</option>";
-  create.disabled = true;
+  document.getElementById("mp-create").disabled = true;
   document.getElementById("modpack-dialog").showModal();
   try {
-    const versions = await (await fetch(`/api/modrinth/versions/${encodeURIComponent(projectId)}?loader=fabric`)).json();
-    const usable = versions.filter(version => (version.files || []).some(file => file.filename?.endsWith(".mrpack")));
-    select.innerHTML = usable.length
-      ? usable.map(version => `<option value="${escapeHtml(version.id)}">${escapeHtml(version.version_number)} · Minecraft ${escapeHtml((version.game_versions || []).slice(-1)[0] || "?")} · ${escapeHtml(version.version_type || "release")}</option>`).join("")
-      : "<option value=\"\">No Fabric version of this pack found</option>";
-    create.disabled = !usable.length;
+    const versions = await loadPackVersions(source, projectId);
+    select.innerHTML = versions.length
+      ? versions.map(version => `<option value="${escapeHtml(version.id)}" data-supported="${version.supported}" data-server-pack="${version.serverPack}">${escapeHtml(version.label)}</option>`).join("")
+      : '<option value="">No installable version of this pack found</option>';
+    const firstUsable = [...select.options].findIndex(option => option.dataset.supported !== "false");
+    if (firstUsable > 0) select.selectedIndex = firstUsable;
+    updateModpackNote();
   } catch (error) {
     select.innerHTML = `<option value="">${escapeHtml(error.message)}</option>`;
   }
@@ -62,7 +102,8 @@ async function startModpackInstall(button) {
       const response = await fetch("/api/modpacks/install", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          version_id: versionId,
+          source: modpackSource,
+          ...(modpackSource === "curseforge" ? { project_id: modpackProject, file_id: versionId } : { version_id: versionId }),
           pack_title: document.getElementById("mp-title").textContent,
           name: document.getElementById("mp-name").value.trim(),
           port: Number(document.getElementById("mp-port").value),

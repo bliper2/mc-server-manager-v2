@@ -35,7 +35,7 @@ async function openServer(id) {
     <div class="row"><span>Version</span><span>${escapeHtml(s.version)}</span></div>
     <div class="row"><span>RAM</span><span>${formatRam(s.ram || 2048)}</span></div>
     <div class="row"><span>Port</span><span>${s.port || 25565}</span></div>
-    ${s.modpack ? `<div class="row"><span>Modpack</span><span title="${escapeHtml(s.modpack.name)} ${escapeHtml(s.modpack.version)}">${escapeHtml(s.modpack.name)} · ${Number(s.modpack.mods) || 0} mods</span></div>` : ""}
+    ${s.modpack ? `<div class="row"><span>Modpack</span><span title="${escapeHtml(s.modpack.name)} ${escapeHtml(s.modpack.version)}">${escapeHtml(s.modpack.name)} · ${Number(s.modpack.mods) || 0} mods${s.modpack.source === "curseforge" ? " · CurseForge" : ""}</span></div>` : ""}
     <div class="row"><span>Java</span><span id="detail-java">Checking...</span></div>
     <div class="row"><span>Ping</span><span id="detail-ping">Checking...</span></div>
     <div class="row"><span>Created</span><span>${new Date(s.created || Date.now()).toLocaleDateString()}</span></div>`;
