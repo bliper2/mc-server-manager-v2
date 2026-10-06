@@ -22,3 +22,10 @@ update_state.json
 manager_settings.json
 restart_state.json
 manager.log*
+
+# Anything that could hold a secret
+.env
+.env.*
+*.pem
+*.key
+secrets*.json
