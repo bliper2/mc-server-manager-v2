@@ -79,6 +79,11 @@ roughly ordered by value inside each group.
 61. [x] 37 more automated tests (88 in total), including the alert, shutdown and permission logic.
 62. [x] CI workflow that runs the tests on Windows and Linux for every push.
 
+## Shipped since v2.3.0
+
+- [x] Modpack support in Plugins & Mods: browse Modrinth modpacks and create a Fabric server from one, with checksums, safe paths and a progress bar.
+  Still to do for modpacks: Forge, NeoForge and Quilt packs (they need their installers run), CurseForge packs, and updating an installed pack in place.
+
 ## Backlog
 
 ### Security
@@ -103,7 +108,7 @@ roughly ordered by value inside each group.
 79. [ ] Server templates (save a server as a template, create new ones from it).
 80. [ ] Change a server's Minecraft version in place, with an automatic backup first.
 81. [ ] Move a server's world to another drive.
-82. [ ] Import from a zip file as well as a folder.
+82. [ ] Import from a zip file as well as a folder, and from a local `.mrpack` file.
 83. [ ] Pre-generate the world (chunk pre-generation) with a progress bar.
 84. [ ] World border, gamerule and seed editor with explanations.
 85. [ ] Datapack manager.

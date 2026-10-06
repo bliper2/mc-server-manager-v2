@@ -173,15 +173,19 @@ const searchState = { q: "", type: "plugin", offset: 0, loading: false, done: fa
 
 const featuredState = {
   plugin: { offset: 0, loading: false, done: false },
-  mod: { offset: 0, loading: false, done: false }
+  mod: { offset: 0, loading: false, done: false },
+  modpack: { offset: 0, loading: false, done: false }
 };
+const FEATURED_LISTS = { plugin: "featured-plugins", mod: "featured-mods", modpack: "featured-modpacks" };
 
 function projectCard(h, type, i, cls) {
   return `
       <article class="${cls}" style="--i:${i % 12}">
         ${h.icon_url ? `<img src="${escapeHtml(h.icon_url)}" alt="" loading="lazy" onerror="this.style.display='none'" />` : '<div class="project-icon"></div>'}
         <div class="info"><h4>${escapeHtml(h.title)}</h4><p>${escapeHtml(h.description || "")}</p><div class="stats">↓ ${(h.downloads || 0).toLocaleString()} downloads${h.author ? ` · ${escapeHtml(h.author)}` : ""}</div></div>
-        <button class="btn primary small" onclick="installProject(${jsArg(h.project_id || h.slug)}, ${jsArg(h.title)}, ${jsArg(type)})">Install</button>
+        ${type === "modpack"
+          ? `<button class="btn primary small" data-perm="manage" onclick="openModpackDialog(${jsArg(h.project_id || h.slug)}, ${jsArg(h.title)}, ${jsArg(h.icon_url || "")})">Create server</button>`
+          : `<button class="btn primary small" onclick="installProject(${jsArg(h.project_id || h.slug)}, ${jsArg(h.title)}, ${jsArg(type)})">Install</button>`}
       </article>`;
 }
 
@@ -232,39 +236,29 @@ async function loadMoreSearch() {
 }
 
 async function loadFeatured() {
-  const plugins = document.getElementById("featured-plugins");
-  const mods = document.getElementById("featured-mods");
-  if (!plugins || !mods) return;
-  featuredState.plugin = { offset: 0, loading: false, done: false };
-  featuredState.mod = { offset: 0, loading: false, done: false };
-  try {
-    const [pluginData, modData] = await Promise.all([
-      (await fetch("/api/modrinth/featured?type=plugin&offset=0")).json(),
-      (await fetch("/api/modrinth/featured?type=mod&offset=0")).json()
-    ]);
-    const pluginHits = pluginData.hits || [];
-    const modHits = modData.hits || [];
-    featuredState.plugin.offset = pluginHits.length;
-    featuredState.plugin.done = pluginHits.length < PAGE_SIZE;
-    featuredState.mod.offset = modHits.length;
-    featuredState.mod.done = modHits.length < PAGE_SIZE;
-    plugins.innerHTML = pluginHits.length
-      ? pluginHits.map((h, i) => projectCard(h, "plugin", i, "featured-item")).join("")
-      : '<div class="empty">No projects found</div>';
-    mods.innerHTML = modHits.length
-      ? modHits.map((h, i) => projectCard(h, "mod", i, "featured-item")).join("")
-      : '<div class="empty">No projects found</div>';
-  } catch (e) {
-    featuredState.plugin.done = true;
-    featuredState.mod.done = true;
-    plugins.innerHTML = '<div class="empty">Featured plugins unavailable</div>';
-    mods.innerHTML = '<div class="empty">Featured mods unavailable</div>';
-  }
+  const types = Object.keys(FEATURED_LISTS);
+  if (!types.every(type => document.getElementById(FEATURED_LISTS[type]))) return;
+  types.forEach(type => { featuredState[type] = { offset: 0, loading: false, done: false }; });
+  await Promise.all(types.map(async type => {
+    const list = document.getElementById(FEATURED_LISTS[type]);
+    try {
+      const data = await (await fetch(`/api/modrinth/featured?type=${type}&offset=0`)).json();
+      const hits = data.hits || [];
+      featuredState[type].offset = hits.length;
+      featuredState[type].done = hits.length < PAGE_SIZE;
+      list.innerHTML = hits.length
+        ? hits.map((h, i) => projectCard(h, type, i, "featured-item")).join("")
+        : '<div class="empty">No projects found</div>';
+    } catch (e) {
+      featuredState[type].done = true;
+      list.innerHTML = `<div class="empty">Featured ${type}s unavailable</div>`;
+    }
+  }));
 }
 
 async function loadMoreFeatured(type) {
   const state = featuredState[type];
-  const list = document.getElementById(type === "plugin" ? "featured-plugins" : "featured-mods");
+  const list = document.getElementById(FEATURED_LISTS[type]);
   if (!state || !list || state.loading || state.done) return;
   state.loading = true;
   try {
@@ -281,6 +275,12 @@ async function loadMoreFeatured(type) {
   } finally {
     state.loading = false;
   }
+}
+
+// A modpack creates its own server, so the "target server" choice only applies to plugins and mods.
+function syncSearchType() {
+  const modpack = document.getElementById("search-type").value === "modpack";
+  document.getElementById("search-server").hidden = modpack;
 }
 
 function nearBottom(el, threshold = 220) {

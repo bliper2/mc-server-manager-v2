@@ -315,18 +315,19 @@
       <section id="tab-browser" class="tab">
         <header class="page-header">
           <h1>Plugins & Mods</h1>
-          <p class="subtitle">Modrinth · install to selected server</p>
+          <p class="subtitle">Modrinth · plugins and mods install to the selected server; a modpack creates a new server</p>
         </header>
         <div class="browser-controls">
           <input type="text" id="search-q" placeholder="Search..." />
-          <select id="search-type"><option value="plugin">Plugins</option><option value="mod">Mods</option></select>
-          <select id="search-server"><option value="">Target server...</option></select>
+          <select id="search-type" onchange="syncSearchType()"><option value="plugin">Plugins</option><option value="mod">Mods</option><option value="modpack">Modpacks</option></select>
+          <select id="search-server" aria-label="Target server"><option value="">Target server...</option></select>
           <button class="btn primary" onclick="searchModrinth()">Search</button>
         </div>
         <div class="featured-heading"><span class="eyebrow">Community picks</span><span>Ranked by total downloads on Modrinth</span></div>
         <div class="featured-grid">
           <section class="featured-section"><div class="featured-section-heading"><h2>Most downloaded plugins</h2><span class="badge type">PLUGINS</span></div><div id="featured-plugins" class="featured-list"><div class="loading">Loading plugins...</div></div></section>
           <section class="featured-section"><div class="featured-section-heading"><h2>Most downloaded mods</h2><span class="badge type">MODS</span></div><div id="featured-mods" class="featured-list"><div class="loading">Loading mods...</div></div></section>
+          <section class="featured-section featured-wide"><div class="featured-section-heading"><h2>Popular modpacks</h2><span class="badge type">FABRIC &middot; SERVER READY</span></div><div id="featured-modpacks" class="featured-list"><div class="loading">Loading modpacks...</div></div></section>
         </div>
         <div id="search-results" class="results-list"><div class="empty">Search above</div></div>
       </section>
@@ -788,6 +789,27 @@
     </form>
   </dialog>
 
+  <dialog id="modpack-dialog" class="modal wide" aria-labelledby="mp-title">
+    <div class="modpack-head">
+      <img id="mp-icon" alt="" hidden />
+      <div><span class="eyebrow">Modpack</span><h3 id="mp-title">Create a server</h3></div>
+    </div>
+    <p class="hint">Creates a new <strong>Fabric</strong> server with the pack's mods and settings. Client-only mods are skipped and every file is checked against its checksum.</p>
+    <div class="form-group"><label for="mp-version">Pack version</label><select id="mp-version"><option>Loading...</option></select></div>
+    <div class="form-row">
+      <div class="form-group"><label for="mp-name">Server name</label><input type="text" id="mp-name" maxlength="40" /></div>
+      <div class="form-group"><label for="mp-port">Port</label><input type="number" id="mp-port" min="1024" max="65535" /></div>
+    </div>
+    <div class="form-group"><label for="mp-ram">Memory</label><select id="mp-ram"><option value="4096">4 GB (small packs)</option><option value="6144">6 GB</option><option value="8192">8 GB (large packs)</option><option value="12288">12 GB</option></select><small class="field-hint">Modpacks need much more than a plain server. Check the pack's page for its recommendation.</small></div>
+    <label class="option-toggle eula-toggle"><input type="checkbox" id="mp-eula" /><span class="toggle-mark"></span><span><strong>I accept the Minecraft EULA</strong><small><a href="https://aka.ms/MinecraftEULA" target="_blank" rel="noopener">Read it</a></small></span></label>
+    <div id="mp-progress" class="task-progress" hidden><div class="task-bar"><i id="mp-bar-fill"></i></div><span id="mp-progress-text">Starting...</span></div>
+    <div id="mp-status" class="status-msg" role="status"></div>
+    <div class="modal-actions">
+      <button type="button" class="btn ghost" onclick="closeModpackDialog()">Close</button>
+      <button type="button" class="btn primary" id="mp-create" onclick="startModpackInstall(this)">Create server</button>
+    </div>
+  </dialog>
+
   <dialog id="palette-dialog" class="modal palette" aria-label="Search and jump">
     <input type="search" id="palette-input" placeholder="Jump to a page or server, or run an action..." autocomplete="off" aria-label="Search" />
     <div id="palette-list" class="palette-list" role="listbox"></div>
@@ -846,6 +868,7 @@
   <script src="/static/js/settings.js?v={{ asset }}"></script>
   <script src="/static/js/staff.js?v={{ asset }}"></script>
   <script src="/static/js/automation.js?v={{ asset }}"></script>
+  <script src="/static/js/modpacks.js?v={{ asset }}"></script>
   <script src="/static/js/palette.js?v={{ asset }}"></script>
   <script src="/static/js/boot.js?v={{ asset }}"></script>
   <script src="/static/js/main.js?v={{ asset }}"></script>

@@ -25,5 +25,7 @@ java_install = {"state": "idle", "message": "", "log": []}
 
 # server id -> {player name: join timestamp}, for playtime
 joined_at = {}
+# job id -> progress of a modpack install
+modpack_jobs = {}
 # server id -> lock, so two clicks cannot start the same server twice
 start_locks = {}

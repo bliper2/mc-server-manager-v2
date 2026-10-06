@@ -84,6 +84,9 @@ document.getElementById("featured-plugins").addEventListener("scroll", e => {
 document.getElementById("featured-mods").addEventListener("scroll", e => {
   if (nearBottom(e.target)) loadMoreFeatured("mod");
 });
+document.getElementById("featured-modpacks").addEventListener("scroll", e => {
+  if (nearBottom(e.target)) loadMoreFeatured("modpack");
+});
 
 window.addEventListener("scroll", () => {
   if (!document.getElementById("tab-browser")?.classList.contains("active")) return;
@@ -158,3 +161,4 @@ pollStats();
 setInterval(pollStats, 3000);
 startBootWatcher();
 restoreView();
+resumeModpackInstall();

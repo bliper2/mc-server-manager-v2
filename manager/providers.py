@@ -96,6 +96,11 @@ def modrinth_search(query, project_type="plugin", limit=24, offset=0, game_versi
             facets.append(["project_type:mod"])
             if loader:
                 facets.append([f"categories:{loader}"])
+        elif project_type == "modpack":
+            # Only packs the manager can run: Fabric, and not client-only.
+            facets.append(["project_type:modpack"])
+            facets.append(["categories:fabric"])
+            facets.append(["server_side:required", "server_side:optional"])
         if game_version:
             facets.append([f"versions:{game_version}"])
         params = {"query": query or "", "limit": limit, "offset": offset, "index": index}
@@ -106,6 +111,12 @@ def modrinth_search(query, project_type="plugin", limit=24, offset=0, game_versi
         return r.json()
     except Exception as e:
         return {"hits": [], "error": str(e)}
+
+def modrinth_version(version_id):
+    """One version of a project, including its files. Raises on network or HTTP errors."""
+    response = requests.get(f"https://api.modrinth.com/v2/version/{version_id}", headers=HEADERS, timeout=20)
+    response.raise_for_status()
+    return response.json()
 
 def modrinth_versions(project_id, game_version=None, loader=None):
     try:

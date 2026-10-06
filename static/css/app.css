@@ -864,3 +864,15 @@ kbd { display: inline-block; min-width: 1.6rem; padding: .1rem .4rem; color: var
   .playtime-row .bar, .playtime-row small { display: none; }
   .toolbar-search { max-width: none; width: 100%; }
 }
+
+
+/* ---------- Modpacks ---------- */
+dialog.modal.wide { width: min(520px, calc(100vw - 32px)); max-height: calc(100vh - 40px); overflow-y: auto; }
+.modpack-head { display: flex; align-items: center; gap: .85rem; margin-bottom: .6rem; }
+.modpack-head img { width: 48px; height: 48px; border-radius: 10px; object-fit: cover; background: var(--bg); }
+.modpack-head h3 { margin: 0; }
+dialog.wide .form-group { margin-bottom: 1rem; }
+dialog.wide .form-row { gap: .8rem; }
+.featured-wide { grid-column: 1 / -1; }
+.featured-wide .featured-list { max-height: 440px; }
+@media (min-width: 1100px) { .featured-wide .featured-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); } }

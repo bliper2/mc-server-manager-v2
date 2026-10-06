@@ -152,6 +152,19 @@ Point `MC_MANAGER_REPO` at another `owner/name` to follow a fork. A copy cloned 
 - **Properties:** every known key has a description and the right kind of input, with a filter box.
 - **EULA:** creating a server needs a tick on "I accept the Minecraft EULA".
 
+## Modpacks
+
+**Plugins & Mods** has a *Modpacks* option in the search box and a *Popular modpacks* list of Modrinth packs that run on a server (Fabric, not client-only). **Create server** on a pack asks for a pack version, a name, a port and memory (modpacks need 4 GB or more), then installs in the background with a progress bar:
+
+1. Downloads the `.mrpack` and checks its checksum.
+2. Installs the Fabric server launcher for the pack's Minecraft and loader versions.
+3. Downloads every mod the pack lists (four at a time), skipping client-only ones, and verifies each against its SHA-1 (and SHA-512 when given). Any mismatch cancels the whole install and removes the half-built server.
+4. Copies the pack's `overrides/` and `server-overrides/` (configs, scripts) into the server.
+
+Safety: downloads only from the hosts the `.mrpack` specification allows (`cdn.modrinth.com`, `github.com`, `raw.githubusercontent.com`, `gitlab.com`) over HTTPS, size and file-count limits, paths that escape the server folder or overwrite the manager's own files are refused, and only one pack installs at a time. It needs the *create, import and delete servers* permission. The new server shows its pack under **Info**.
+
+Not supported yet: Forge, NeoForge and Quilt packs (the manager says which loader a pack needs), CurseForge packs, installing a pack into an existing server, and updating an installed pack.
+
 ## Health, diagnostics and alerts
 
 - `GET /api/health` is public and returns only `{ok, version, uptime}`, for uptime monitors.
@@ -218,14 +231,14 @@ manager/                   Application code (Flask routes register themselves on
   backups.py  providers.py   Backups; jar downloads and the Modrinth client
   rconmap.py                 RCON client, live map, markers
   updater.py  lifecycle.py   Self-update; restarting the manager
-  routes_servers.py  routes_files.py  servertools.py  automation.py   HTTP routes and background jobs
+  routes_servers.py  routes_files.py  servertools.py  modpacks.py  automation.py   HTTP routes and background jobs
   ops.py  web.py             Health, diagnostics, log, disk; security headers, gzip, caching
 tests/                     Unit tests (python -m unittest discover -s tests -t .)
 templates/                 index.html (the panel) and login.html
 static/css/themes.css      One colour block per theme
 static/css/app.css         All other styles
 static/js/                 core, servers, detail, console, files, backups, plugins, settings, staff,
-                           automation, palette, boot, main (plus map.js and scene.js)
+                           automation, modpacks, palette, boot, main (plus map.js and scene.js)
 static/vendor/             Bundled Leaflet and three.js (no CDN, works offline)
 mock_rcon.py               Fake RCON server with simulated players for development
 servers/  backups/         Your data (git-ignored)
