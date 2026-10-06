@@ -31,3 +31,4 @@ manager.log*
 *.pem
 *.key
 secrets*.json
+*.tmp

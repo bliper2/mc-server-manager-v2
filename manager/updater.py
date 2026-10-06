@@ -17,7 +17,7 @@ from .config import BACKUPS_DIR, BASE_DIR, DATA_DIR, HEADERS, SERVERS_DIR
 from .lifecycle import supervised
 from .notify import notify
 from .state import restart_flags
-from .store import is_running
+from .store import is_running, write_json_atomic
 from .util import sanitize_relative_parts
 
 UPDATE_REPO = os.environ.get("MC_MANAGER_REPO", "bliper2/mc-server-manager-v2")
@@ -42,7 +42,7 @@ def load_update_state() -> dict:
         return defaults
 
 def save_update_state(state: dict):
-    UPDATE_STATE_FILE.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    write_json_atomic(UPDATE_STATE_FILE, state, indent=2)
 
 def installed_commit(state: dict):
     """Falls back to git so a cloned checkout knows where it stands before the first update."""

@@ -16,7 +16,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from . import app, totp
 from .config import STAFF_FILE, VERSION
 from .notify import notify
-from .store import audit, read_audit
+from .store import audit, read_audit, write_json_atomic
 from .util import SERVER_ID_PATTERN
 
 def require_admin():
@@ -42,6 +42,7 @@ COMMON_PASSWORDS = {"password", "password1", "password12", "password123", "12345
                     "qwertyuiop", "iloveyou", "admin123", "letmein1", "welcome1", "minecraft", "minecraft1", "minecraft123", "11111111",
                     "00000000", "abcd1234", "abc12345", "passw0rd", "p@ssw0rd", "changeme", "football", "baseball", "dragon123", "monkey123"}
 account_lock = threading.Lock()
+accounts_file_lock = threading.RLock()
 login_attempts = {}
 # Checked against when a username does not exist, so a miss costs the same time as a wrong password.
 DUMMY_HASH = generate_password_hash("not-a-real-password")
@@ -83,16 +84,23 @@ ENDPOINT_RULES = {
 }
 
 def load_accounts() -> list:
-    try:
-        data = json.loads(STAFF_FILE.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return []
-    return data if isinstance(data, list) else []
+    # Every request reads this file while a save may be replacing it, and on Windows that clash is an "Access is denied".
+    # The lock keeps this process's threads apart; the retry covers a scanner or editor holding the file for a moment.
+    for attempt in range(6):
+        try:
+            with accounts_file_lock:
+                data = json.loads(STAFF_FILE.read_text(encoding="utf-8"))
+            return data if isinstance(data, list) else []
+        except PermissionError:
+            if attempt == 5:
+                raise
+            time.sleep(0.05 * (attempt + 1))
+        except (OSError, json.JSONDecodeError):
+            return []
 
 def save_accounts(accounts: list):
-    temp = STAFF_FILE.with_suffix(".tmp")
-    temp.write_text(json.dumps(accounts, indent=2), encoding="utf-8")
-    os.replace(temp, STAFF_FILE)
+    with accounts_file_lock:
+        write_json_atomic(STAFF_FILE, accounts, indent=2)
 
 def find_account(username: str, accounts=None):
     wanted = (username or "").strip().lower()

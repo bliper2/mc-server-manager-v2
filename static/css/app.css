@@ -919,3 +919,20 @@ dialog.logo-dialog .status-msg { margin: 0; }
 body.density-compact .server-card-banner { width: calc(100% + 1.7rem); margin: -.85rem -.85rem .8rem; }
 dialog.logo-dialog.banners .logo-grid { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
 dialog.logo-dialog.banners .logo-pick img { aspect-ratio: 3 / 1; }
+
+/* Plugins and mods this server cannot load */
+.plugin-problems { display: flex; flex-direction: column; align-items: flex-start; gap: .55rem; margin: 0 0 .6rem; }
+.plugin-problems > span { font-size: .74rem; line-height: 1.4; }
+.plugin-problems .btn { white-space: nowrap; }
+.plugin-row.has-problem { border-left: 3px solid var(--amber); }
+.plugin-problem { display: block; margin-top: .15rem; color: var(--amber); font-size: .68rem; font-weight: 500; white-space: normal; }
+
+/* Accent colour picker */
+.setting-row.accent-row { flex-wrap: wrap; align-items: flex-start; }
+.accent-row > div:first-child { flex: 1 1 220px; }
+.accent-grid { display: grid; flex: 1 1 100%; grid-template-columns: repeat(auto-fill, minmax(32px, 1fr)); gap: .55rem; max-width: 560px; margin-top: .3rem; }
+.accent-swatch { position: relative; aspect-ratio: 1; padding: 0; background: var(--swatch); border: 2px solid var(--surface); border-radius: 50%; box-shadow: 0 0 0 1px var(--line); transition: transform .15s var(--ease), box-shadow .15s; }
+.accent-swatch:hover { transform: scale(1.14); }
+.accent-swatch:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+.accent-swatch.active { box-shadow: 0 0 0 2px var(--text); transform: scale(1.08); }
+.accent-swatch.active::after { content: ""; position: absolute; inset: 31%; background: rgba(0, 0, 0, .55); border-radius: 50%; }

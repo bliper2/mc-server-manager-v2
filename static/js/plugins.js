@@ -2,12 +2,19 @@
 
 function pluginRows(list, folder) {
   if (!list.length) return '<div class="empty" style="padding:0.4rem">None found</div>';
-  return list.map(file => `<div class="item plugin-row${file.enabled ? "" : " is-off"}">
-      <span class="plugin-name" title="${escapeHtml(file.name)}">${escapeHtml(file.name.replace(/\.disabled$/, ""))}${file.enabled ? "" : ' <em>disabled</em>'}</span>
+  return list.map(file => `<div class="item plugin-row${file.enabled ? "" : " is-off"}${file.problem ? " has-problem" : ""}">
+      <span class="plugin-name" title="${escapeHtml(file.name)}">${escapeHtml(file.name.replace(/\.disabled$/, ""))}${file.enabled ? "" : ' <em>disabled</em>'}${file.problem ? `<small class="plugin-problem">⚠ ${escapeHtml(file.problem)}</small>` : ""}</span>
       <span class="plugin-size">${formatBytes(file.size)}</span>
       <label class="setting-switch" data-perm="files" title="${file.enabled ? "Disable" : "Enable"} (applies after a restart)"><input type="checkbox" ${file.enabled ? "checked" : ""} onchange="togglePlugin(${jsArg(folder)}, ${jsArg(file.name)}, this.checked)" aria-label="Enabled" /><span></span></label>
       <button class="btn danger small" data-perm="files" onclick="deletePlugin(${jsArg(folder)}, ${jsArg(file.name)})" aria-label="Delete ${escapeHtml(file.name)}">✕</button>
     </div>`).join("");
+}
+
+// Above a list: how many files the server cannot load, with a one-click way to switch them off.
+function pluginNotice(list, folder) {
+  const broken = list.filter(file => file.problem && file.enabled);
+  if (!broken.length) return "";
+  return `<div class="notice warn plugin-problems"><span><strong>${broken.length} file${broken.length === 1 ? "" : "s"} here cannot be loaded by this server.</strong> Each one makes the server log an error at start-up. Disable ${broken.length === 1 ? "it" : "them"} (you can turn ${broken.length === 1 ? "it" : "them"} back on later) or delete ${broken.length === 1 ? "it" : "them"}.</span><button class="btn small" data-perm="files" onclick="disableBrokenPlugins(${jsArg(folder)})">Disable ${broken.length === 1 ? "it" : "them all"}</button></div>`;
 }
 
 async function loadPluginMods() {
@@ -16,8 +23,25 @@ async function loadPluginMods() {
     (await fetch(`/api/server/${currentServerId}/files?folder=plugins`)).json(),
     (await fetch(`/api/server/${currentServerId}/files?folder=mods`)).json()
   ]);
+  document.getElementById("plugins-notice").innerHTML = pluginNotice(plugins, "plugins");
+  document.getElementById("mods-notice").innerHTML = pluginNotice(mods, "mods");
   document.getElementById("plugins-list").innerHTML = pluginRows(plugins, "plugins");
   document.getElementById("mods-list").innerHTML = pluginRows(mods, "mods");
+}
+
+async function disableBrokenPlugins(folder) {
+  const files = await (await fetch(`/api/server/${currentServerId}/files?folder=${folder}`)).json();
+  let done = 0;
+  for (const file of files.filter(item => item.problem && item.enabled)) {
+    try {
+      await requestJson(`/api/server/${currentServerId}/plugins/toggle`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ folder, name: file.name, enabled: false }) });
+      done++;
+    } catch (error) {
+      showToast(error.message, "error");
+    }
+  }
+  if (done) showToast(`Disabled ${done} file${done === 1 ? "" : "s"}. Restart the server to apply.`, "success");
+  loadPluginMods();
 }
 
 async function togglePlugin(folder, name, enabled) {
@@ -351,10 +375,17 @@ async function installProject(projectId, title, ptype) {
   try {
     showToast(`Finding latest version for ${title}...`, "success");
     const server = (await (await fetch("/api/servers")).json()).find(item => item.id === serverId);
-    const query = server?.version && /^1\./.test(server.version) ? `?version=${encodeURIComponent(server.version)}` : "";
-    const versions = await (await fetch(`/api/modrinth/versions/${encodeURIComponent(projectId)}${query}`)).json();
+    // Ask for builds that match this server's version and loader (Paper/Purpur plugins, Fabric/Forge/NeoForge mods).
+    // Newer version names that Modrinth does not tag yet fall back to the newest build for the right loader.
+    const base = `/api/modrinth/versions/${encodeURIComponent(projectId)}?server=${encodeURIComponent(serverId)}&type=${ptype === "mod" ? "mod" : "plugin"}`;
+    let versions = await (await fetch(server?.version ? `${base}&version=${encodeURIComponent(server.version)}` : base)).json();
+    let fellBack = false;
+    if (!versions.length && server?.version && !/^1\./.test(server.version)) {
+      versions = await (await fetch(base)).json();
+      fellBack = versions.length > 0;
+    }
     if (!versions.length) {
-      showToast(`No ${title} build found for this server's version`, "error");
+      showToast(`No ${title} build for this server's version and type`, "error");
       return;
     }
     const ver = versions[0];
@@ -368,7 +399,7 @@ async function installProject(projectId, title, ptype) {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url: file.url, filename: file.filename, target })
     })).json();
-    if (data.ok) showToast(`Installed ${title} to /${target}/`, "success");
+    if (data.ok) showToast(fellBack ? `Installed ${title} to /${target}/ (newest build for this server type; none is tagged ${server.version})` : `Installed ${title} to /${target}/`, "success");
     else showToast(data.error || "Failed to install", "error");
   } catch (error) {
     showToast(`Install failed: ${error.message}`, "error");

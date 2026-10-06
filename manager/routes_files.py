@@ -8,10 +8,11 @@ from werkzeug.utils import secure_filename
 from . import app
 from .auth import current_account
 from .backups import auto_update_settings
+from .compat import bytes_problem, folder_problems, loaders_for
 from .providers import apply_plugin_update, download_url_bytes, modrinth_search, modrinth_versions, scan_plugin_updates
 from .state import update_cache
 from .store import get_server_path, load_meta, save_meta
-from .util import DOWNLOAD_FOLDERS, has_line_break, is_trusted_download, safe_path
+from .util import DOWNLOAD_FOLDERS, SERVER_ID_PATTERN, has_line_break, is_trusted_download, safe_path
 
 MAX_EDIT_BYTES = 2 * 1024 * 1024
 
@@ -199,7 +200,14 @@ def api_modrinth_featured():
 
 @app.route("/api/modrinth/versions/<pid>")
 def api_modrinth_versions(pid):
-    return jsonify(modrinth_versions(pid, request.args.get("version"), request.args.get("loader")))
+    """Versions of a project. With ?server=<id>&type=plugin|mod only builds for a loader that server runs are returned
+    (Paper and Purpur take Bukkit plugins; Fabric, Forge and NeoForge servers take their own mods)."""
+    loader = request.args.get("loader")
+    sid = request.args.get("server", "")
+    if SERVER_ID_PATTERN.fullmatch(sid) and get_server_path(sid).is_dir():
+        folder = "mods" if request.args.get("type") == "mod" else "plugins"
+        loader = loaders_for(load_meta(sid).get("type"), folder) or loader
+    return jsonify(modrinth_versions(pid, request.args.get("version"), loader))
 
 @app.route("/api/server/<sid>/install", methods=["POST"])
 def api_install(sid):
@@ -224,6 +232,9 @@ def api_install(sid):
     content = download_url_bytes(url)
     if not content:
         return jsonify({"ok": False, "error": "Download failed"}), 500
+    problem = bytes_problem(content, safe_name, load_meta(sid).get("type"), target)
+    if problem:
+        return jsonify({"ok": False, "error": f"Not installed. {problem}"}), 400
     dest = folder / safe_name
     dest.write_bytes(content)
     return jsonify({"ok": True, "path": str(dest.relative_to(path))})
@@ -237,11 +248,12 @@ def api_files(sid):
     if not path.exists():
         return jsonify([])
     files = []
+    problems = folder_problems(path, load_meta(sid).get("type"), folder)  # jars this server cannot load, with the reason
     for f in path.iterdir():
         lowered = f.name.lower()
         if f.is_file() and (lowered.endswith(".jar") or lowered.endswith(".jar.disabled")):
             files.append({"name": f.name, "size": f.stat().st_size, "enabled": lowered.endswith(".jar"),
-                          "modified": datetime.fromtimestamp(f.stat().st_mtime).isoformat()})
+                          "modified": datetime.fromtimestamp(f.stat().st_mtime).isoformat(), "problem": problems.get(f.name, "")})
     return jsonify(sorted(files, key=lambda item: item["name"].lower()))
 
 def plugin_file(sid, data):

@@ -1,6 +1,9 @@
 """On-disk server metadata and the audit trail."""
 
 import json
+import os
+import time
+import uuid
 from datetime import datetime
 from pathlib import Path
 
@@ -10,6 +13,26 @@ from .state import audit_lock, playit_processes, running_servers
 def get_server_path(server_id: str) -> Path:
     return SERVERS_DIR / server_id
 
+def replace_with_retry(temp: Path, target: Path):
+    """os.replace that rides out Windows' brief "Access is denied" while a reader (or a virus scanner) has the target open."""
+    for attempt in range(8):
+        try:
+            os.replace(temp, target)
+            return
+        except PermissionError:
+            if attempt == 7:
+                raise
+            time.sleep(0.05 * (attempt + 1))
+
+def write_json_atomic(path: Path, data, indent=None):
+    """Writes through a uniquely named temporary file, so two writers never share one and a crash never leaves half a file."""
+    temp = path.with_name(f"{path.name}.{uuid.uuid4().hex[:8]}.tmp")
+    try:
+        temp.write_text(json.dumps(data, indent=indent), encoding="utf-8")
+        replace_with_retry(temp, path)
+    finally:
+        temp.unlink(missing_ok=True)
+
 def load_meta(server_id: str) -> dict:
     f = get_server_path(server_id) / "manager_meta.json"
     if f.exists():
@@ -18,7 +41,7 @@ def load_meta(server_id: str) -> dict:
 
 def save_meta(server_id: str, data: dict):
     f = get_server_path(server_id) / "manager_meta.json"
-    f.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    write_json_atomic(f, data, indent=2)
 
 def is_running(server_id: str) -> bool:
     p = running_servers.get(server_id)
@@ -100,9 +123,7 @@ def load_settings() -> dict:
 
 def save_settings(settings: dict):
     with audit_lock:
-        temp = SETTINGS_FILE.with_suffix(".tmp")
-        temp.write_text(json.dumps(settings, indent=2), encoding="utf-8")
-        temp.replace(SETTINGS_FILE)
+        write_json_atomic(SETTINGS_FILE, settings, indent=2)
 
 def playtime_file(server_id: str) -> Path:
     return get_server_path(server_id) / "manager_playtime.json"
@@ -125,6 +146,4 @@ def add_playtime(server_id: str, player: str, seconds: float):
         entry["sessions"] = int(entry["sessions"]) + 1
         entry["last_seen"] = datetime.now().isoformat(timespec="seconds")
         data[player] = entry
-        temp = playtime_file(server_id).with_suffix(".tmp")
-        temp.write_text(json.dumps(data), encoding="utf-8")
-        temp.replace(playtime_file(server_id))
+        write_json_atomic(playtime_file(server_id), data)

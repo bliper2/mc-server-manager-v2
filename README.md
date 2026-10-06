@@ -43,6 +43,7 @@ Open `http://127.0.0.1:5000/` after the server starts.
 - Plugin YAML, YML, and JSON config editor with download support
 - Playit.gg agent configuration and start/stop controls
 - Server logos: a library of 128 bundled logos, bulk image import and Pinterest pin import
+- 36 accent colours, each tuned for the dark and the light themes
 - Live map of online players with a moderation drawer, over RCON
 - Self-update from the GitHub repo, with a snapshot and rollback
 - 37 themes, seven fonts, density, refresh, and confirmation settings
@@ -111,6 +112,12 @@ install updates on its own. Jars that are not on Modrinth are listed as unmatche
 
 Updating replaces a file on disk, so it works best with the server stopped — Windows will not let a
 running server's jar be overwritten, and the manager reports that rather than failing quietly.
+
+### The right loader
+
+Modrinth lists one project under several loaders (Paper, Fabric, NeoForge, Folia and more), so "the newest version" can be a build your server cannot run. The manager now asks only for builds the server's type accepts: Paper takes Paper, Spigot and Bukkit plugins, Purpur those plus Purpur, and Fabric, Forge and NeoForge servers take their own mods. This applies to **Install**, to the update check and to **Apply update**, and a downloaded file is also looked inside before it is saved: a NeoForge or Fabric mod headed for a Paper `plugins` folder, a Folia-only build or a cut-off download is refused with the reason.
+
+Files that are already in the wrong place are shown in the Plugins/Mods tab with a warning and the reason (for example "This is a NeoForge mod, not a plugin, so Purpur cannot load it" or "Needs ProtocolLib, which is not installed"). **Disable them all** renames them to `.jar.disabled`, so Paper stops logging a stack trace for each one at start-up, and you can turn them back on at any time.
 
 ## Updating the manager
 
@@ -248,7 +255,7 @@ manager/                   Application code (Flask routes register themselves on
   updater.py  lifecycle.py   Self-update; restarting the manager
   routes_servers.py  routes_files.py  servertools.py  automation.py   HTTP routes and background jobs
   modpacks.py  curseforge.py  loaders.py  packtools.py   Modpack install: Modrinth and CurseForge sources, Fabric/Forge/NeoForge loaders, shared safe downloads
-  logos.py                   Logo library, image import, Pinterest pin import
+  logos.py  compat.py        Logo library and image import; which plugin/mod files a server can load
   ops.py  web.py             Health, diagnostics, log, disk; security headers, gzip, caching
 tests/                     Unit tests (python -m unittest discover -s tests -t .)
 templates/                 index.html (the panel) and login.html

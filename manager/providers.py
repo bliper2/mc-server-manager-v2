@@ -8,6 +8,7 @@ from pathlib import Path
 import requests
 from werkzeug.utils import secure_filename
 
+from .compat import bytes_problem, loaders_for
 from .config import HEADERS
 from .state import update_cache
 from .store import get_server_path, load_meta
@@ -124,7 +125,7 @@ def modrinth_versions(project_id, game_version=None, loader=None):
         if game_version:
             params["game_versions"] = json.dumps([game_version])
         if loader:
-            params["loaders"] = json.dumps([loader])
+            params["loaders"] = json.dumps(loader if isinstance(loader, list) else [loader])
         r = requests.get(f"https://api.modrinth.com/v2/project/{project_id}/version", params=params, headers=HEADERS, timeout=20)
         r.raise_for_status()
         return r.json()
@@ -170,7 +171,8 @@ def primary_version_file(version: dict):
 
 def scan_plugin_updates(server_id: str) -> list:
     root = get_server_path(server_id)
-    game_version = load_meta(server_id).get("version")
+    meta = load_meta(server_id)
+    game_version = meta.get("version")
     results = []
     for folder_name in ("plugins", "mods"):
         folder = root / folder_name
@@ -186,7 +188,9 @@ def scan_plugin_updates(server_id: str) -> list:
                 results.append(entry)
                 continue
             project_id = current.get("project_id")
-            candidates = [v for v in modrinth_versions(project_id, game_version=game_version) if v.get("id") != current.get("id")]
+            # Only versions for a loader this server runs: Modrinth lists Fabric and NeoForge builds of the same project too.
+            loaders = loaders_for(meta.get("type"), folder_name) or None
+            candidates = [v for v in modrinth_versions(project_id, game_version=game_version, loader=loaders) if v.get("id") != current.get("id")]
             candidates.sort(key=lambda v: v.get("date_published", ""), reverse=True)
             newest = candidates[0] if candidates else None
             entry.update({
@@ -218,6 +222,9 @@ def apply_plugin_update(server_id: str, folder_name: str, filename: str, downloa
     if not content:
         return False, "Could not download the new version"
     saved_name = secure_filename(new_filename or filename)
+    problem = bytes_problem(content, saved_name, load_meta(server_id).get("type"), folder_name)
+    if problem:
+        return False, f"Not installed. {problem}"
     try:
         if target.name != saved_name:
             target.unlink(missing_ok=True)

@@ -83,6 +83,7 @@ function applySettings() {
     if (input.type === "checkbox") input.checked = Boolean(value);
     else if (value !== undefined) input.value = value;
   });
+  renderAccentPicker(settings.accent);
   if (settingsRefreshTimer) clearInterval(settingsRefreshTimer);
   settingsRefreshTimer = settings.autoRefresh ? setInterval(() => {
     if (document.getElementById("tab-servers")?.classList.contains("active")) loadServers();
@@ -93,6 +94,30 @@ function applySettings() {
   }, Number(settings.pingInterval) * 1000) : null;
   if (currentServerId && document.getElementById("tab-detail")?.classList.contains("active")) startDetailPing(currentServerId);
   window.mcScene?.applyPreferences({ enabled: settings.backdrop3d, motion: settings.motion });
+}
+
+// The accent colour is chosen from a grid of swatches; the hidden select next to it is what the settings code reads and saves.
+function renderAccentPicker(current) {
+  const select = document.querySelector('.setting-input[data-setting="accent"]');
+  const grid = document.getElementById("accent-grid");
+  if (!select || !grid) return;
+  if (!grid.children.length) {
+    grid.innerHTML = [...select.options].map(option => `<button type="button" class="accent-swatch" role="radio" data-accent-key="${escapeHtml(option.value)}" style="--swatch:${escapeHtml(option.dataset.color || "#a3e635")}" title="${escapeHtml(option.textContent)}" aria-label="${escapeHtml(option.textContent)}"></button>`).join("");
+    grid.addEventListener("click", event => {
+      const swatch = event.target.closest("[data-accent-key]");
+      if (!swatch) return;
+      select.value = swatch.dataset.accentKey;
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+  }
+  const chosen = [...select.options].find(option => option.value === current) || select.options[0];
+  grid.querySelectorAll("[data-accent-key]").forEach(swatch => {
+    const active = swatch.dataset.accentKey === chosen.value;
+    swatch.classList.toggle("active", active);
+    swatch.setAttribute("aria-checked", String(active));
+  });
+  const name = document.getElementById("accent-name");
+  if (name) name.textContent = `${chosen.textContent}. ${select.options.length} colors to choose from.`;
 }
 
 function initSettings() {
