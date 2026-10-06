@@ -4,7 +4,9 @@ one on a server.
 A server keeps its own copy of the chosen image (manager_logo.<ext> or manager_banner.<ext> in its folder), so deleting
 a library image or cloning and backing up a server never loses the picture.
 
-The owner's own images live in two folders next to the manager, "logos" and "banners". Any PNG, JPG, GIF or WebP dropped
+Three sources feed the picker: artwork that ships with the manager (static/logos and static/banners, drawn by the scripts
+in tools/), images contributed through GitHub (static/community/logos and static/community/banners) and the owner's own
+images. The owner's live in two folders next to the manager, "logos" and "banners". Any PNG, JPG, GIF or WebP dropped
 in there shows up in the picker, whatever it is called (even with no file extension, as saved pages and "Save image as"
 often leave it); imports from the panel and from Pinterest are saved into the same folders. GIFs stay animated."""
 
@@ -22,6 +24,9 @@ from .config import ASSET_VERSION, BASE_DIR, DATA_DIR, HEADERS
 from .store import get_server_path, load_meta, save_meta
 
 BUNDLED_DIR = BASE_DIR / "static" / "logos"
+BUNDLED_BANNERS = BASE_DIR / "static" / "banners"
+COMMUNITY_LOGO_DIR = BASE_DIR / "static" / "community" / "logos"
+COMMUNITY_BANNER_DIR = BASE_DIR / "static" / "community" / "banners"
 CUSTOM_DIR = DATA_DIR / "logos"
 BANNER_DIR = DATA_DIR / "banners"
 MAX_LOGO_BYTES = 8 * 1024 * 1024
@@ -29,9 +34,10 @@ MAX_BANNER_BYTES = 16 * 1024 * 1024  # animated banners are big
 MAX_CUSTOM_LOGOS = 300  # per folder
 MAX_UPLOAD_FILES = 40
 MAX_PIN_PAGE_BYTES = 4 * 1024 * 1024  # a pin page is about 1.2 MB and its og:image tag sits well past the first megabyte
-NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,80}\.(png|jpg|webp)$")  # bundled files are named by us
+NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,80}\.(png|jpg|webp|gif)$")  # bundled files are named by us
 IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}
-CATEGORY_ORDER = ("combat", "royal", "nature", "build", "pixel")
+CATEGORY_ORDER = ("animated", "combat", "royal", "nature", "build", "pixel", "scenic", "pattern")
+PLAIN_LABEL_CATEGORIES = {"pixel", "animated", "scenic", "pattern"}  # <category>-<name>: the label is just the name
 PIN_IMAGE_HOST = "i.pinimg.com"
 SERVER_IMAGES = {"logo": ("manager_logo", "logo"), "banner": ("manager_banner", "banner")}  # kind -> (file stem in the server folder, metadata key)
 
@@ -123,8 +129,21 @@ class Gallery:
         return self.describe(path)
 
 
+class CommunityGallery(Gallery):
+    """Images contributed through GitHub. They live in the repository (served as static files), so the manager only reads them."""
+
+    def ensure(self):
+        pass
+
+    def describe(self, path: Path) -> dict:
+        return {"ref": f"community/{path.name}", "name": re.sub(r"[-_]+", " ", path.stem).strip() or path.name, "category": "community",
+                "url": f"/static/community/{self.kind}s/{quote(path.name)}?v={ASSET_VERSION}"}
+
+
 LOGOS = Gallery("logo", CUSTOM_DIR, lambda: MAX_LOGO_BYTES, "/api/logos/custom/")
 BANNERS = Gallery("banner", BANNER_DIR, lambda: MAX_BANNER_BYTES, "/api/banners/custom/")
+COMMUNITY_LOGOS = CommunityGallery("logo", COMMUNITY_LOGO_DIR, lambda: MAX_LOGO_BYTES, "")
+COMMUNITY_BANNERS = CommunityGallery("banner", COMMUNITY_BANNER_DIR, lambda: MAX_BANNER_BYTES, "")
 
 
 def ensure_folder():
@@ -142,6 +161,8 @@ def resolve_ref(ref):
     if kind == "bundled" and NAME_PATTERN.match(name):
         path = BUNDLED_DIR / name
         return path if path.is_file() else None
+    if kind == "community":
+        return COMMUNITY_LOGOS.resolve(name)
     if kind == "custom":
         return LOGOS.resolve(name)
     return None
@@ -149,23 +170,40 @@ def resolve_ref(ref):
 
 def resolve_banner(ref):
     kind, _, name = str(ref or "").partition("/")
+    if kind == "bundled" and NAME_PATTERN.match(name):
+        path = BUNDLED_BANNERS / name
+        return path if path.is_file() else None
+    if kind == "community":
+        return COMMUNITY_BANNERS.resolve(name)
     return BANNERS.resolve(name) if kind == "custom" else None
 
 
-def describe_bundled(path: Path) -> dict:
+def describe_bundled(path: Path, folder: str = "logos") -> dict:
     parts = path.stem.split("-")
     category = parts[0]
-    label = " ".join(parts[1:]).title() if category == "pixel" else f"{parts[1].title()} ({parts[2]})" if len(parts) > 2 else path.stem.title()
-    return {"ref": f"bundled/{path.name}", "name": label, "category": category, "url": f"/static/logos/{path.name}?v={ASSET_VERSION}"}
+    if category in PLAIN_LABEL_CATEGORIES or len(parts) < 3:
+        label = " ".join(parts[1:]).title() or path.stem.title()
+    else:
+        label = f"{parts[1].title()} ({parts[2]})"  # emblems: <category>-<shape of the glyph>-<colour>
+    return {"ref": f"bundled/{path.name}", "name": label, "category": category, "url": f"/static/{folder}/{path.name}?v={ASSET_VERSION}"}
+
+
+def list_bundled(folder: Path, name: str) -> list:
+    def order(item):
+        category = item["category"]
+        return (CATEGORY_ORDER.index(category) if category in CATEGORY_ORDER else len(CATEGORY_ORDER), item["name"])
+
+    if not folder.is_dir():
+        return []
+    return sorted((describe_bundled(p, name) for p in folder.iterdir() if NAME_PATTERN.match(p.name)), key=order)
 
 
 def list_logos() -> dict:
-    def order(logo):
-        category = logo["category"]
-        return (CATEGORY_ORDER.index(category) if category in CATEGORY_ORDER else len(CATEGORY_ORDER), logo["name"])
+    return {"bundled": list_bundled(BUNDLED_DIR, "logos"), "community": COMMUNITY_LOGOS.listing(), "custom": LOGOS.listing()}
 
-    bundled = sorted((describe_bundled(p) for p in BUNDLED_DIR.glob("*.png") if NAME_PATTERN.match(p.name)), key=order)
-    return {"bundled": bundled, "custom": LOGOS.listing()}
+
+def list_banners() -> dict:
+    return {"bundled": list_bundled(BUNDLED_BANNERS, "banners"), "community": COMMUNITY_BANNERS.listing(), "custom": BANNERS.listing()}
 
 
 def add_custom(data: bytes, label: str) -> dict:
@@ -360,7 +398,7 @@ def api_logos_pinterest():
 
 @app.route("/api/banners")
 def api_banners():
-    return jsonify({"ok": True, "bundled": [], "custom": BANNERS.listing()})
+    return jsonify({"ok": True, **list_banners()})
 
 
 @app.route("/api/banners/custom/<name>")

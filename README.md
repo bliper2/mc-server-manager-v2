@@ -42,7 +42,7 @@ Open `http://127.0.0.1:5000/` after the server starts.
 - Top downloaded plugin and mod lists
 - Plugin YAML, YML, and JSON config editor with download support
 - Playit.gg agent configuration and start/stop controls
-- Server logos: a library of 128 bundled logos, bulk image import and Pinterest pin import
+- Server logos and banners: 141 bundled logos (13 animated GIFs) and 18 bundled banners (8 animated GIFs), a community library on GitHub, bulk image import and Pinterest pin import
 - 36 accent colours, each tuned for the dark and the light themes
 - Live map of online players with a moderation drawer, over RCON
 - Self-update from the GitHub repo, with a snapshot and rollback
@@ -177,15 +177,17 @@ Not supported yet: Quilt, installing a pack into an existing server, importing a
 
 ## Server logos and banners
 
-**Create** and each server's **Info** panel have a logo library. It holds 128 ready-made logos (emblems in 13 colour schemes and a set of pixel-art icons; search by name or filter by Combat, Royal, Nature, Build and Pixel art) and everything you add yourself under **My logos**:
+**Create** and each server's **Info** panel have a logo library. It holds 141 ready-made logos (emblems in 13 colour schemes, pixel-art icons and 13 animated GIFs; search by name or filter by Animated, Combat, Royal, Nature, Build and Pixel art), the **Community** logos from GitHub and everything you add yourself under **My logos**:
 
 - **The `logos` folder.** Drop PNG, JPG, GIF or WebP files into the `logos` folder in the main manager folder (next to `app.py`), with any file name (even none: saved web pages often have no extension), then open the picker (or press **Refresh**). They appear under **My logos**. The manager creates the folder on start. Files are checked by content, up to 8 MB each; anything that is not really an image is ignored. **GIFs stay animated.**
 - **Upload images** in the dialog does the same thing: it takes several files at once and saves them into that folder.
 - **Import pin** takes the link of a Pinterest pin (or a `pin.it` short link) and stores the pin's image in your library. Pinterest has no public search for other programs, so the **Browse Pinterest** button opens Pinterest's own search in a new tab: find a pin, copy its link, paste it here. Only `pinterest.com` pin pages and `i.pinimg.com` images are ever fetched, every redirect is checked, and the size is capped. Use only images you have the right to use.
 
-Importing or removing library logos needs the *create, import and delete servers* permission; the ✕ on a My logos tile deletes that file from the `logos` folder. **Banners** are wide pictures (or animated GIFs, up to 16 MB) shown at the top of a server's Info panel and across the top of its card in the server list. Use **Banner** in the Info panel: it opens the same picker for the `banners` folder, with the same drop-a-file, upload and Pinterest options, and **Remove** takes the banner off again. Banners need the *files* permission to set, like logos.
+Importing or removing library logos needs the *create, import and delete servers* permission; the ✕ on a My logos tile deletes that file from the `logos` folder. **Banners** come as 18 ready-made pictures (10 stills and 8 looping animated GIFs: aurora, starfield, waves, neon grid, embers, rain, lava and sunset clouds, filterable as Animated, Scenic and Patterns), the Community banners and your own. They are wide pictures (or animated GIFs, up to 16 MB) shown at the top of a server's Info panel and across the top of its card in the server list. Use **Banner** in the Info panel: it opens the same picker for the `banners` folder, with the same drop-a-file, upload and Pinterest options, and **Remove** takes the banner off again. Banners need the *files* permission to set, like logos.
 
-A server keeps its own copy of the logo or banner it uses (`manager_logo.*` in its folder), so removing a library logo never changes a server, and backups and clones include it. The bundled logos are original artwork drawn by `tools/make_logos.py` (needs Pillow; only needed to change the library), so they carry no licence.
+**Sharing through GitHub.** Anything in `static/community/logos` and `static/community/banners` in the repository ships with the manager and shows up under **Community** for everyone who updates. To contribute, put your file in the right folder (or run `python tools/add_community.py logo|banner FILE`) and open a pull request; the rules (only art you made or that is openly licensed, no brand or game logos, no Pinterest saves) are in [static/community/README.md](static/community/README.md). A test fails if a contributed file is not a usable image. The `logos` and `banners` folders next to `app.py` stay private to your install and are never committed.
+
+A server keeps its own copy of the logo or banner it uses (`manager_logo.*` in its folder), so removing a library logo never changes a server, and backups and clones include it. The bundled logos and banners are original artwork drawn by `tools/make_logos.py` and `tools/make_banners.py` (they need Pillow; only needed to change the library), so they carry no licence.
 
 ## Health, diagnostics and alerts
 
@@ -263,7 +265,9 @@ static/css/themes.css      One colour block per theme
 static/css/app.css         All other styles
 static/js/                 core, servers, detail, console, files, backups, plugins, settings, staff,
                            automation, modpacks, logos, palette, boot, main (plus map.js and scene.js)
-static/logos/              The 128 bundled server logos (made by tools/make_logos.py)
+static/logos/              The bundled server logos, 141 files (made by tools/make_logos.py)
+static/banners/            The 18 bundled banners (made by tools/make_banners.py)
+static/community/          Logos and banners contributed through GitHub (see its README)
 logos/                     Your own logo images (git-ignored; created on start)
 banners/                   Your own banner images and GIFs (git-ignored; created on start)
 static/vendor/             Bundled Leaflet and three.js (no CDN, works offline)

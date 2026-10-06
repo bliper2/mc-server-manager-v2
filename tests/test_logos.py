@@ -74,22 +74,32 @@ class BundledLibrary(AppTestCase):
         library = logos.list_logos()["bundled"]
         self.assertGreaterEqual(len(library), 100)
         self.assertEqual(len({logo["ref"] for logo in library}), len(library))
-        self.assertTrue({"combat", "royal", "nature", "build", "pixel"} <= {logo["category"] for logo in library})
+        self.assertTrue({"combat", "royal", "nature", "build", "pixel", "animated"} <= {logo["category"] for logo in library})
+        animated = 0
         for logo in library:
-            path = logos.resolve_ref(logo["ref"])
-            data = path.read_bytes()
-            self.assertEqual(logos.image_extension(data), ".png", logo["ref"])
-            self.assertEqual(struct.unpack(">II", data[16:24]), (128, 128), logo["ref"])
-            self.assertLess(len(data), 40 * 1024, logo["ref"])
+            data = logos.resolve_ref(logo["ref"]).read_bytes()
+            if logo["ref"].endswith(".gif"):
+                animated += 1
+                self.assertEqual(logos.image_extension(data), ".gif", logo["ref"])
+                self.assertEqual(logo["category"], "animated", logo["ref"])
+                self.assertEqual(struct.unpack("<HH", data[6:10]), (128, 128), logo["ref"])
+                self.assertIn(b"NETSCAPE2.0", data[:1024], f"{logo['ref']} must loop")
+                self.assertLess(len(data), 120 * 1024, logo["ref"])
+            else:
+                self.assertEqual(logos.image_extension(data), ".png", logo["ref"])
+                self.assertEqual(struct.unpack(">II", data[16:24]), (128, 128), logo["ref"])
+                self.assertLess(len(data), 40 * 1024, logo["ref"])
+        self.assertGreaterEqual(animated, 10)
 
     def test_the_list_endpoint_describes_every_logo(self):
         owner = self.owner()
         data = owner.get("/api/logos").get_json()
         self.assertTrue(data["ok"])
-        sword = next(logo for logo in data["bundled"] if logo["name"].startswith("Sword"))
+        sword = next(logo for logo in data["bundled"] if logo["category"] == "combat" and logo["name"].startswith("Sword"))
         self.assertTrue(sword["url"].startswith("/static/logos/combat-sword-"))
         self.assertEqual(status_of(owner, sword["url"]), 200)
         self.assertEqual(data["custom"], [])
+        self.assertIn("community", data)
 
     def test_references_cannot_leave_the_library_folders(self):
         for bad in ("bundled/../../app.py", "bundled/..", "custom/../staff.json", "other/x.png", "bundled/Pixel-Apple.png", "", None, "pixel-apple.png",
@@ -353,3 +363,90 @@ class Pinterest(AppTestCase):
         self.assertIn("Could not reach Pinterest", reply.get_json()["error"])
         reply, _ = self.run_import({self.PIN: FakeResponse(status=404)}, self.PIN)
         self.assertEqual(reply.status_code, 502)
+
+
+class RepositoryLibraries(AppTestCase):
+    """The pictures that ship with the manager, and the folders GitHub contributors add to."""
+
+    def test_bundled_banners_ship_with_the_app_and_the_animated_ones_loop(self):
+        banners = logos.list_banners()["bundled"]
+        self.assertGreaterEqual(len(banners), 12)
+        self.assertTrue({"animated", "scenic", "pattern"} <= {banner["category"] for banner in banners})
+        self.assertEqual(len({banner["ref"] for banner in banners}), len(banners))
+        animated = 0
+        for banner in banners:
+            data = logos.resolve_banner(banner["ref"]).read_bytes()
+            self.assertLess(len(data), 700 * 1024, banner["ref"])
+            if banner["ref"].endswith(".gif"):
+                animated += 1
+                self.assertEqual(logos.image_extension(data), ".gif")
+                self.assertEqual(struct.unpack("<HH", data[6:10]), (640, 192), banner["ref"])
+                self.assertIn(b"NETSCAPE2.0", data[:1024], f"{banner['ref']} must loop")
+            else:
+                self.assertEqual(logos.image_extension(data), ".png")
+                self.assertEqual(struct.unpack(">II", data[16:24]), (640, 192), banner["ref"])
+        self.assertGreaterEqual(animated, 6)
+
+    def test_a_bundled_banner_can_be_put_on_a_server(self):
+        folder = make_server()
+        owner = self.owner()
+        gif = next(b for b in owner.get("/api/banners").get_json()["bundled"] if b["ref"].endswith(".gif"))
+        self.assertEqual(status_of(owner, gif["url"]), 200)
+        self.assertEqual(owner.post("/api/server/alpha_1/banner", json={"banner": gif["ref"]}).status_code, 200)
+        self.assertEqual((folder / "manager_banner.gif").read_bytes(), logos.resolve_banner(gif["ref"]).read_bytes())
+        self.assertEqual(owner.post("/api/server/alpha_1/banner", json={"banner": "bundled/../../app.py"}).status_code, 400)
+
+    def test_contributed_files_appear_under_community_and_can_be_used(self):
+        folder = make_server()
+        owner = self.owner()
+        logo_dir, banner_dir = HOME / "community_logos", HOME / "community_banners"
+        logo_dir.mkdir(exist_ok=True)
+        banner_dir.mkdir(exist_ok=True)
+        (logo_dir / "Team Rocket.gif").write_bytes(GIF)
+        (logo_dir / "README.md").write_text("not an image")
+        (logo_dir / ".gitkeep").write_text("")
+        (banner_dir / "Big raid.png").write_bytes(PNG)
+        with mock.patch.object(logos.COMMUNITY_LOGOS, "folder", logo_dir), mock.patch.object(logos.COMMUNITY_BANNERS, "folder", banner_dir):
+            community = owner.get("/api/logos").get_json()["community"]
+            self.assertEqual([(c["name"], c["category"], c["ref"]) for c in community], [("Team Rocket", "community", "community/Team Rocket.gif")])
+            self.assertIn("/static/community/logos/Team%20Rocket.gif", community[0]["url"])
+            self.assertEqual([c["ref"] for c in owner.get("/api/banners").get_json()["community"]], ["community/Big raid.png"])
+            self.assertEqual(owner.post("/api/server/alpha_1/logo", json={"logo": "community/Team Rocket.gif"}).status_code, 200)
+            self.assertEqual(owner.post("/api/server/alpha_1/banner", json={"banner": "community/Big raid.png"}).status_code, 200)
+            self.assertEqual((folder / "manager_logo.gif").read_bytes(), GIF)
+            self.assertEqual((folder / "manager_banner.png").read_bytes(), PNG)
+            self.assertEqual(owner.delete("/api/logos/custom/Team%20Rocket.gif").status_code, 404, "community files cannot be deleted through the panel")
+            self.assertIsNone(logos.resolve_ref("community/../x.png"))
+            self.assertIsNone(logos.resolve_banner("community/README.md"))
+
+    def test_every_file_in_the_repository_community_folders_is_usable(self):
+        """Guards pull requests: a contributed file that the picker would silently skip fails here instead."""
+        for gallery in (logos.COMMUNITY_LOGOS, logos.COMMUNITY_BANNERS):
+            if not gallery.folder.is_dir():
+                continue
+            for path in sorted(gallery.folder.iterdir()):
+                if path.name in ("README.md", ".gitkeep"):
+                    continue
+                self.assertTrue(logos.custom_name_ok(path.name), f"{path.name}: use a plain file name (no hidden names or path characters)")
+                self.assertTrue(gallery.is_image(path), f"{path.name}: not a PNG, JPG, GIF or WebP image within the size limit")
+
+    def test_the_add_community_tool_checks_content_and_cleans_names(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("add_community", logos.BASE_DIR / "tools" / "add_community.py")
+        tool = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(tool)
+        target = HOME / "tool_logos"
+        source = HOME / "tool_source"
+        source.mkdir(exist_ok=True)
+        (source / "Cool Logo (final)!!.png").write_bytes(PNG)
+        (source / "fake.png").write_bytes(PAGE_AS_PNG)
+        (source / "raw-no-extension").write_bytes(GIF)
+        with mock.patch.dict(tool.FOLDERS, {"logo": (target, logos.MAX_LOGO_BYTES)}), mock.patch("builtins.print"):
+            status = tool.main(["add_community.py", "logo", str(source / "Cool Logo (final)!!.png"), str(source / "fake.png"), str(source / "raw-no-extension"), str(source / "missing.png")])
+            again = tool.main(["add_community.py", "logo", str(source / "Cool Logo (final)!!.png")])
+        self.assertEqual(status, 1, "bad files make the tool report failure")
+        self.assertEqual(again, 0)
+        self.assertEqual(sorted(p.name for p in target.iterdir()), ["Cool Logo final.png", "raw-no-extension.gif"])
+        with mock.patch("builtins.print"):
+            self.assertEqual(tool.main(["add_community.py", "poster", "x.png"]), 2)
+

@@ -226,7 +226,8 @@ def gradient(top, bottom):
     return column.resize((BIG, BIG))
 
 
-def emblem(shape, palette, glyph):
+def emblem(shape, palette, glyph, shine=None):
+    """shine (0 to 1) draws a light stripe at that point of its sweep across the badge, for the animated logos."""
     top, bottom, fg = PALETTES[palette]
     _, draw_glyph, rotation = glyph
     mask = badge_mask(shape)
@@ -246,6 +247,12 @@ def emblem(shape, palette, glyph):
     shadow.paste((0, 0, 0, 120), mask=layer.getchannel("A"))
     shadow = ImageChops.offset(shadow.filter(ImageFilter.GaussianBlur(7)), 0, 9)
     body = Image.alpha_composite(Image.alpha_composite(body, shadow), layer)
+    if shine is not None:
+        band = Image.new("L", (BIG, BIG), 0)
+        left = -BIG * 0.5 + shine * BIG * 1.7
+        ImageDraw.Draw(band).polygon([(left, 0), (left + 90, 0), (left + 90 - BIG * 0.45, BIG), (left - BIG * 0.45, BIG)], fill=255)
+        band = ImageChops.multiply(band.filter(ImageFilter.GaussianBlur(14)), mask).point(lambda v: int(v * 0.6))
+        body.paste(Image.new("RGBA", (BIG, BIG), (255, 255, 255, 255)), mask=band)
 
     out = Image.new("RGBA", (BIG, BIG), (0, 0, 0, 0))
     out.paste(body, mask=mask)
@@ -315,7 +322,8 @@ SPRITES = {
 }
 
 
-def pixel_sprite(rows, tile):
+def pixel_sprite(rows, tile, scale=6, overlay=()):
+    """overlay is a list of (x, y, colour letter) pixels drawn on top, for sparks and sparkles in the animated logos."""
     for row in rows:
         assert len(row) == 16, (len(row), row)
     assert len(rows) == 16
@@ -328,13 +336,11 @@ def pixel_sprite(rows, tile):
     tile_image = Image.new("RGBA", (BIG, BIG), (0, 0, 0, 0))
     tile_image.paste(body, mask=mask)
     tile_image = tile_image.resize((SIZE, SIZE), Image.LANCZOS)
-    scale = 6
     start = (SIZE - 16 * scale) // 2
-    for y, row in enumerate(rows):
-        for x, char in enumerate(row):
-            if char != ".":
-                px, py = start + x * scale, start + y * scale
-                ImageDraw.Draw(tile_image).rectangle([px, py, px + scale - 1, py + scale - 1], fill=COLOURS[char] + (255,))
+    pixels = [(x, y, char) for y, row in enumerate(rows) for x, char in enumerate(row) if char != "."] + list(overlay)
+    for x, y, char in pixels:
+        px, py = start + x * scale, start + y * scale
+        ImageDraw.Draw(tile_image).rectangle([px, py, px + scale - 1, py + scale - 1], fill=COLOURS[char] + (255,))
     return tile_image
 
 
@@ -342,9 +348,58 @@ def save(image, path):
     image.save(path, optimize=True, compress_level=9)  # a palette PNG is smaller but bands visibly on the gradients
 
 
+# ---------------------------------------------------------------- animated logos (GIF)
+def save_gif(frames, path, duration):
+    """Frames are RGBA. A GIF has one-bit transparency, so the badge edge is thresholded at half opacity."""
+    paletted = []
+    for frame in frames:
+        flat = frame.convert("RGB").quantize(colors=255, method=Image.MEDIANCUT, dither=Image.NONE)
+        flat.paste(255, mask=frame.getchannel("A").point(lambda a: 255 if a < 128 else 0))
+        paletted.append(flat)
+    paletted[0].save(path, save_all=True, append_images=paletted[1:], duration=duration, loop=0, disposal=2, transparency=255)
+
+
+def sway(rows, first, last, dx):
+    """Moves rows first..last sideways by dx pixels: a flame leaning left or right."""
+    rows = list(rows)
+    for index in range(first, last + 1):
+        row = rows[index]
+        for _ in range(abs(dx)):
+            row = ("." + row[:-1]) if dx > 0 else (row[1:] + ".")
+        rows[index] = row
+    return rows
+
+
+ANIMATED_EMBLEMS = [("squircle", "gold", "crown"), ("hexagon", "diamond", "gem"), ("circle", "redstone", "sword"), ("badge", "amethyst", "shield"),
+                    ("squircle", "emerald", "pickaxe"), ("hexagon", "ember", "bolt"), ("circle", "sapphire", "star"), ("squircle", "rose", "heart")]
+
+
+def animated_logos():
+    count = 0
+    glyphs = {glyph[0]: glyph for group in GLYPHS.values() for glyph in group}
+    for shape, palette, name in ANIMATED_EMBLEMS:
+        sweep = [i / 9 for i in range(10)] + [None] * 6  # a shine passes over the badge, then a short pause
+        save_gif([emblem(shape, palette, glyphs[name], shine) for shine in sweep], OUT / f"animated-{name}-{palette}.gif", 70)
+        count += 1
+    tile = {name: index for index, name in enumerate(SPRITES)}
+    sprites = SPRITES
+    flicker = [(0, ()), (1, [(8, 0, "y")]), (0, ()), (-1, [(6, 0, "o")])]
+    for name, first, last in (("torch", 1, 6), ("flame", 1, 12)):
+        frames = [pixel_sprite(sway(sprites[name], first, min(last, first + 3), dx), tile[name], overlay=spark if name == "torch" else ()) for dx, spark in flicker]
+        save_gif(frames, OUT / f"animated-{name}.gif", 130)
+        count += 1
+    save_gif([pixel_sprite(sprites["heart"], tile["heart"], scale=scale) for scale in (6, 6, 7, 7, 7, 6, 6, 6)], OUT / "animated-heart.gif", 110)
+    twinkle = [[], [(2, 3, "w"), (13, 9, "w")], [(13, 2, "w"), (3, 12, "w")], [(8, 1, "w"), (1, 8, "w")]]
+    save_gif([pixel_sprite(sprites["star"], tile["star"], overlay=extra) for extra in twinkle], OUT / "animated-star.gif", 160)
+    cross = lambda x, y: [(x, y - 1, "w"), (x - 1, y, "w"), (x, y, "w"), (x + 1, y, "w"), (x, y + 1, "w")]
+    sparkle = [[], cross(5, 6), [(5, 6, "w")], [], cross(10, 8), [(10, 8, "w")]]
+    save_gif([pixel_sprite(sprites["diamond"], tile["diamond"], overlay=extra) for extra in sparkle], OUT / "animated-diamond.gif", 120)
+    return count + 3
+
+
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
-    for old in OUT.glob("*.png"):
+    for old in list(OUT.glob("*.png")) + list(OUT.glob("*.gif")):
         old.unlink()
     count = 0
     palettes = list(PALETTES)
@@ -360,7 +415,8 @@ def main():
     for index, (name, rows) in enumerate(SPRITES.items()):
         save(pixel_sprite(rows, index), OUT / f"pixel-{name}.png")
         count += 1
-    total = sum(p.stat().st_size for p in OUT.glob("*.png"))
+    count += animated_logos()
+    total = sum(p.stat().st_size for p in list(OUT.glob("*.png")) + list(OUT.glob("*.gif")))
     print(f"wrote {count} logos, {total // 1024} KB, to {OUT}")
 
 
