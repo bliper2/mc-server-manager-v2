@@ -8,7 +8,6 @@ from manager import notify, state, statusboard
 from tests.support import HOME, AppTestCase, make_server
 
 HOOK = "https://discord.com/api/webhooks/123456789012345678/AbCdEfGhIjKlMnOpQrStUvWxYz-1234567890"
-OTHER_HOOK = "https://discord.com/api/webhooks/987654321098765432/ZyXwVuTsRqPoNmLkJiHgFeDcBa-0987654321"
 
 
 class FakeResponse:
