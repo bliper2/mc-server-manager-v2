@@ -136,4 +136,15 @@ def folder_problems(directory: Path, server_type: str, folder: str) -> dict:
             missing = [name for name in depends if name.lower() not in installed]
             if missing:
                 problems[jar.name] = f"Needs {', '.join(missing)}, which is not installed (the server will refuse to load it)"
+        # Two jars of the same plugin: Paper stops with "Ambiguous plugin name" for the second. Keep the newest one.
+        by_name = {}
+        for jar, facts in known.items():
+            if facts[1]:
+                by_name.setdefault(facts[1].lower(), []).append(jar)
+        for jars in by_name.values():
+            if len(jars) > 1:
+                newest = max(jars, key=lambda j: j.stat().st_mtime)
+                for jar in jars:
+                    if jar is not newest and jar.name not in problems:
+                        problems[jar.name] = f"The same plugin as {newest.name}: the server loads only one of them. Disable the older file"
     return problems

@@ -330,11 +330,12 @@ async function saveProps() {
   else showToast("Failed to save properties", "error");
 }
 
-async function loadPluginConfigs() {
+async function loadPluginConfigs(only = "") {
   if (!currentServerId) return;
   const list = document.getElementById("plugin-config-list");
   if (!list) return;
-  const configs = await (await fetch(`/api/server/${currentServerId}/plugin-configs`)).json();
+  let configs = await (await fetch(`/api/server/${currentServerId}/plugin-configs`)).json();
+  if (only) configs = configs.filter(config => config.path.toLowerCase().includes(`/${only.toLowerCase()}/`));
   list.innerHTML = configs.length ? configs.map(config => `<button class="plugin-config-item" onclick="openPluginConfig(${jsArg(config.path)})"><span>${escapeHtml(config.path)}</span><small>${(config.size / 1024).toFixed(1)} KB</small></button>`).join("") : '<div class="empty">No YAML or JSON configs found</div>';
 }
 

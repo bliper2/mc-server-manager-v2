@@ -1,13 +1,31 @@
 // Installed plugins and mods, Modrinth browser and plugin update checker.
 
+const pluginView = { plugins: [], mods: [], query: "", filter: "all", sort: "name" };
+
+function pluginState(file) {
+  if (!file.enabled) return "disabled";
+  return file.problem ? "problem" : "enabled";
+}
+
 function pluginRows(list, folder) {
   if (!list.length) return '<div class="empty" style="padding:0.4rem">None found</div>';
-  return list.map(file => `<div class="item plugin-row${file.enabled ? "" : " is-off"}${file.problem ? " has-problem" : ""}">
-      <span class="plugin-name" title="${escapeHtml(file.name)}">${escapeHtml(file.name.replace(/\.disabled$/, ""))}${file.enabled ? "" : ' <em>disabled</em>'}${file.problem ? `<small class="plugin-problem">⚠ ${escapeHtml(file.problem)}</small>` : ""}</span>
-      <span class="plugin-size">${formatBytes(file.size)}</span>
+  return list.map(file => {
+    const info = file.info || {};
+    const title = info.name || file.name.replace(/\.disabled$/, "");
+    const update = lastUpdateItems.findIndex(item => item.file === file.name && item.update_available);
+    const meta = [info.version ? `v${escapeHtml(info.version)}` : "", info.authors?.length ? `by ${escapeHtml(info.authors.join(", "))}` : "", formatBytes(file.size)].filter(Boolean).join(" · ");
+    return `<div class="item plugin-row${file.enabled ? "" : " is-off"}${file.problem ? " has-problem" : ""}">
+      <span class="plugin-name" title="${escapeHtml(file.name)}"><strong>${escapeHtml(title)}</strong>${file.enabled ? "" : ' <em>disabled</em>'}
+        ${update >= 0 ? `<button class="chip-update" data-perm="files" onclick="applyUpdate(${update})" title="Install the newest build">↑ ${escapeHtml(lastUpdateItems[update].latest_version || "update")}</button>` : ""}
+        <small class="plugin-meta">${meta}</small>
+        ${info.description ? `<small class="plugin-desc">${escapeHtml(info.description)}</small>` : ""}
+        ${file.problem ? `<small class="plugin-problem">⚠ ${escapeHtml(file.problem)}</small>` : ""}</span>
+      ${file.has_config ? `<button class="btn small" onclick="showPluginConfigs(${jsArg(info.name)})" title="Open this plugin's configuration files">Config</button>` : ""}
+      ${/^https?:\/\//.test(info.website || "") ? `<a class="btn small" href="${escapeHtml(info.website)}" target="_blank" rel="noopener noreferrer" title="Website">↗</a>` : ""}
       <label class="setting-switch" data-perm="files" title="${file.enabled ? "Disable" : "Enable"} (applies after a restart)"><input type="checkbox" ${file.enabled ? "checked" : ""} onchange="togglePlugin(${jsArg(folder)}, ${jsArg(file.name)}, this.checked)" aria-label="Enabled" /><span></span></label>
       <button class="btn danger small" data-perm="files" onclick="deletePlugin(${jsArg(folder)}, ${jsArg(file.name)})" aria-label="Delete ${escapeHtml(file.name)}">✕</button>
-    </div>`).join("");
+    </div>`;
+  }).join("");
 }
 
 // Above a list: how many files the server cannot load, with a one-click way to switch them off.
@@ -17,16 +35,92 @@ function pluginNotice(list, folder) {
   return `<div class="notice warn plugin-problems"><span><strong>${broken.length} file${broken.length === 1 ? "" : "s"} here cannot be loaded by this server.</strong> Each one makes the server log an error at start-up. Disable ${broken.length === 1 ? "it" : "them"} (you can turn ${broken.length === 1 ? "it" : "them"} back on later) or delete ${broken.length === 1 ? "it" : "them"}.</span><button class="btn small" data-perm="files" onclick="disableBrokenPlugins(${jsArg(folder)})">Disable ${broken.length === 1 ? "it" : "them all"}</button></div>`;
 }
 
+const PLUGIN_STATE_ORDER = ["problem", "disabled", "enabled"];
+
+function visiblePlugins(list) {
+  const query = pluginView.query.toLowerCase();
+  const shown = list.filter(file => {
+    if (pluginView.filter !== "all" && pluginState(file) !== pluginView.filter) return false;
+    if (!query) return true;
+    const info = file.info || {};
+    return [file.name, info.name, info.description, (info.authors || []).join(" ")].some(text => (text || "").toLowerCase().includes(query));
+  });
+  const name = file => ((file.info || {}).name || file.name).toLowerCase();
+  const order = {
+    name: (a, b) => name(a).localeCompare(name(b)),
+    size: (a, b) => b.size - a.size,
+    newest: (a, b) => b.modified.localeCompare(a.modified),
+    status: (a, b) => PLUGIN_STATE_ORDER.indexOf(pluginState(a)) - PLUGIN_STATE_ORDER.indexOf(pluginState(b)) || name(a).localeCompare(name(b))
+  };
+  return shown.sort(order[pluginView.sort] || order.name);
+}
+
+function renderPluginLists() {
+  for (const folder of ["plugins", "mods"]) {
+    const all = pluginView[folder];
+    const shown = visiblePlugins(all);
+    document.getElementById(`${folder}-notice`).innerHTML = pluginNotice(all, folder);
+    document.getElementById(`${folder}-list`).innerHTML = all.length && !shown.length ? '<div class="empty" style="padding:0.4rem">Nothing matches this search</div>' : pluginRows(shown, folder);
+    const off = all.filter(file => !file.enabled).length, bad = all.filter(file => file.problem && file.enabled).length;
+    document.getElementById(`${folder}-count`).textContent = all.length ? `${all.length} file${all.length === 1 ? "" : "s"}${off ? ` · ${off} disabled` : ""}${bad ? ` · ${bad} with problems` : ""}` : "";
+  }
+}
+
+function setPluginView(key, value) {
+  pluginView[key] = value;
+  renderPluginLists();
+}
+
 async function loadPluginMods() {
   if (!currentServerId) return;
   const [plugins, mods] = await Promise.all([
     (await fetch(`/api/server/${currentServerId}/files?folder=plugins`)).json(),
     (await fetch(`/api/server/${currentServerId}/files?folder=mods`)).json()
   ]);
-  document.getElementById("plugins-notice").innerHTML = pluginNotice(plugins, "plugins");
-  document.getElementById("mods-notice").innerHTML = pluginNotice(mods, "mods");
-  document.getElementById("plugins-list").innerHTML = pluginRows(plugins, "plugins");
-  document.getElementById("mods-list").innerHTML = pluginRows(mods, "mods");
+  pluginView.plugins = plugins;
+  pluginView.mods = mods;
+  renderPluginLists();
+  wirePluginDrop();
+}
+
+async function uploadPluginFiles(files, folder) {
+  const jars = [...files];
+  if (!jars.length) return;
+  const form = new FormData();
+  form.append("folder", folder);
+  jars.forEach(file => form.append("files", file));
+  try {
+    const data = await (await fetch(`/api/server/${currentServerId}/plugins/upload`, { method: "POST", body: form })).json();
+    (data.skipped || []).forEach(item => showToast(`${item.name}: ${item.reason}`, "error"));
+    if (data.added?.length) showToast(`Added ${data.added.join(", ")}. Restart the server to load ${data.added.length === 1 ? "it" : "them"}.`, "success");
+    else if (!(data.skipped || []).length) showToast(data.error || "Nothing was added", "error");
+  } catch (error) {
+    showToast(`Upload failed: ${error.message}`, "error");
+  }
+  loadPluginMods();
+}
+
+// A .jar dropped anywhere on the panel goes to the folder this server loads: mods when only mods exist, plugins otherwise.
+function wirePluginDrop() {
+  const panel = document.getElementById("dtab-plugins");
+  if (!panel || panel.dataset.dropReady) return;
+  panel.dataset.dropReady = "1";
+  const folderFor = () => (pluginView.mods.length && !pluginView.plugins.length ? "mods" : "plugins");
+  ["dragenter", "dragover"].forEach(type => panel.addEventListener(type, event => {
+    if (event.dataTransfer?.types?.includes("Files")) { event.preventDefault(); panel.classList.add("drop-target"); }
+  }));
+  panel.addEventListener("dragleave", event => { if (!panel.contains(event.relatedTarget)) panel.classList.remove("drop-target"); });
+  panel.addEventListener("drop", event => {
+    if (!event.dataTransfer?.files?.length) return;
+    event.preventDefault();
+    panel.classList.remove("drop-target");
+    uploadPluginFiles(event.dataTransfer.files, folderFor());
+  });
+}
+
+function showPluginConfigs(name) {
+  loadPluginConfigs(name);
+  document.querySelector(".plugin-config-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 async function disableBrokenPlugins(folder) {
@@ -111,6 +205,7 @@ function renderUpdateResults() {
     list.innerHTML = '<div class="empty">No plugin or mod files found.</div>';
     return;
   }
+  renderPluginLists();
   list.innerHTML = lastUpdateItems.map((item, index) => `
     <div class="backup-item" style="--i:${index}">
       <div class="backup-meta">
@@ -365,8 +460,8 @@ function nearBottom(el, threshold = 220) {
   return el.scrollTop + el.clientHeight >= el.scrollHeight - threshold;
 }
 
-async function installProject(projectId, title, ptype) {
-  const serverId = document.getElementById("search-server").value;
+async function installProject(projectId, title, ptype, targetServerId = "") {
+  const serverId = targetServerId || document.getElementById("search-server").value;
   if (!serverId) {
     showToast("Please select a target server from the dropdown", "warning");
     document.getElementById("search-server").focus();

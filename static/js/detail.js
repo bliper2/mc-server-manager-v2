@@ -1,4 +1,4 @@
-// The server detail page: header actions, tabs, players, Playit, anti-cheat and the command wiki.
+// The server detail page: header actions, tabs, players, Playit and the command wiki.
 
 async function openServer(id) {
   stopBackupPolling();
@@ -244,45 +244,6 @@ function useWikiCommand(command) {
 function switchDetailTab(name) {
   const button = document.querySelector(`.dtab[data-dtab="${name}"]`);
   if (button) button.click();
-}
-
-async function loadAntiCheat() {
-  const data = await (await fetch(`/api/server/${currentServerId}/anticheat`)).json();
-  const config = data.config || {};
-  ["enabled", "movement", "combat", "alerts"].forEach(key => { document.getElementById(`ac-${key}`).checked = Boolean(config[key]); });
-  document.getElementById("ac-threshold").value = config.threshold || 5;
-  document.getElementById("ac-command").value = config.command || "notify";
-  const status = document.getElementById("anticheat-plugin-status");
-  status.textContent = data.plugins?.length ? `${data.plugins.length} plugin detected` : "Plugin required";
-  status.className = `badge ${data.plugins?.length ? "online" : "offline"}`;
-}
-
-async function saveAntiCheat() {
-  const payload = { enabled: document.getElementById("ac-enabled").checked, movement: document.getElementById("ac-movement").checked, combat: document.getElementById("ac-combat").checked, alerts: document.getElementById("ac-alerts").checked, threshold: document.getElementById("ac-threshold").value, command: document.getElementById("ac-command").value };
-  const data = await (await fetch(`/api/server/${currentServerId}/anticheat`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })).json();
-  showToast(data.ok ? "Anti-cheat profile saved" : (data.error || "Save failed"), data.ok ? "success" : "error");
-}
-
-function getVulcanCommand() {
-  const template = document.getElementById("vulcan-command").value;
-  const player = document.getElementById("vulcan-player").value.trim();
-  return template.replaceAll("{player}", player);
-}
-
-function updateVulcanPreview() {
-  const command = getVulcanCommand();
-  document.getElementById("vulcan-preview").textContent = `/${command}`;
-}
-
-async function sendVulcanCommand() {
-  const template = document.getElementById("vulcan-command").value;
-  const command = getVulcanCommand();
-  if (template.includes("{player}") && !document.getElementById("vulcan-player").value.trim()) {
-    showToast("Enter a player name first", "warning");
-    return;
-  }
-  const data = await (await fetch(`/api/server/${currentServerId}/command`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ command }) })).json();
-  showToast(data.ok ? `Sent /${command}` : (data.error || data.message || "Command failed"), data.ok ? "success" : "error");
 }
 
 function togglePlayit() {

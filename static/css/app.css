@@ -992,3 +992,53 @@ dialog.logo-dialog.banners .logo-pick img { aspect-ratio: 3 / 1; }
 #map-canvas[data-mode="place"]::after { content: "Click to place the marker · Esc to cancel"; }
 #map-canvas[data-mode="move"]::after { content: "Click the new position · Esc to cancel"; }
 #map-canvas[data-mode="ruler"]::after { content: "Click points to measure · Esc to stop"; }
+
+/* ---------- Plugins and mods tab ---------- */
+.plugin-toolbar-row { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.plugin-toolbar-row input[type="search"] { flex: 1 1 14rem; min-width: 0; }
+.plugin-toolbar-row select { width: auto; }
+.plugin-count { margin-left: .4rem; color: var(--muted); font: .68rem var(--mono); font-weight: 400; }
+#dtab-plugins.drop-target { outline: 2px dashed var(--green); outline-offset: -6px; border-radius: var(--radius-sm); }
+.plugin-row .plugin-name strong { font-weight: 600; }
+.plugin-row .plugin-name { white-space: normal; }
+.plugin-row .plugin-meta, .plugin-row .plugin-desc { display: block; margin-top: .1rem; color: var(--muted); font-size: .68rem; }
+.plugin-row .plugin-desc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plugin-row a.btn { text-decoration: none; }
+.chip-update { margin-left: .4rem; padding: .05rem .4rem; color: var(--green); background: color-mix(in srgb, var(--green) 12%, transparent); border: 1px solid color-mix(in srgb, var(--green) 40%, transparent); border-radius: 999px; font: .62rem var(--mono); cursor: pointer; }
+
+/* ---------- GrimAC (Anti-Cheat tab) ---------- */
+.grim-status-body .notice { margin: 0 0 .7rem; }
+#grim-live > .panel-card, .grim-status { margin-bottom: 1rem; }
+.grim-summary { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; margin-bottom: .8rem; }
+.grim-summary h4, .grim-group h4 { margin: 0 0 .4rem; color: var(--muted); font: .68rem var(--mono); text-transform: uppercase; letter-spacing: .06em; }
+.grim-chips { display: flex; flex-wrap: wrap; gap: .35rem; }
+.grim-chip { padding: .2rem .55rem; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 999px; font-size: .72rem; }
+button.grim-chip { cursor: pointer; }
+button.grim-chip:hover { border-color: var(--green); }
+.grim-chip b { margin-left: .25rem; color: var(--muted); font: .66rem var(--mono); font-weight: 500; }
+.grim-alerts { max-height: 22rem; overflow: auto; border: 1px solid var(--line); border-radius: 5px; background: var(--bg); }
+.grim-alert { display: grid; grid-template-columns: 4.5rem 8rem 9rem 3rem 1fr; gap: .5rem; align-items: baseline; padding: .35rem .6rem; border-bottom: 1px solid var(--line); font-size: .74rem; }
+.grim-alert:last-child { border-bottom: 0; }
+.grim-alert time { color: var(--muted); font-family: var(--mono); }
+.grim-player { padding: 0; color: var(--green); background: none; border: 0; font: inherit; text-align: left; cursor: pointer; }
+.grim-check { font-weight: 600; }
+.grim-vl { font-family: var(--mono); color: var(--muted); }
+.grim-vl.high { color: var(--red); font-weight: 700; }
+.grim-info { overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
+.grim-group { margin-bottom: 1.1rem; }
+.grim-group .toggle-card { margin-bottom: .45rem; }
+.grim-group .form-group { margin-bottom: .6rem; }
+.grim-group small { color: var(--muted); font-size: .7rem; }
+.grim-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr)); gap: .7rem; }
+.grim-card { display: flex; flex-direction: column; gap: .4rem; padding: .8rem; background: var(--bg); border: 1px solid var(--line); border-radius: 5px; }
+.grim-card small { color: var(--muted); font-size: .68rem; }
+.grim-rule { display: flex; justify-content: space-between; gap: .6rem; font-size: .72rem; }
+.grim-rule code { overflow: hidden; color: var(--amber); font: .7rem var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+.grim-file-content { width: 100%; min-height: 18rem; font: .74rem var(--mono); }
+.grim-output { max-height: 16rem; margin: .7rem 0 0; padding: .7rem; overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 5px; font: .72rem var(--mono); white-space: pre-wrap; }
+@media (max-width: 700px) { .grim-summary { grid-template-columns: 1fr; } .grim-alert { grid-template-columns: 4rem 1fr 3rem; } .grim-alert .grim-info { grid-column: 1 / -1; } }
+#plugins-list, #mods-list { max-height: 34rem; }
+#dtab-plugins .panel-card.two-col { grid-template-columns: 1fr; }
+#dtab-plugins .panel-card.two-col { grid-template-columns: minmax(0, 1fr); }
+#dtab-plugins .panel-card.two-col > div { min-width: 0; }
+.plugin-row .plugin-name > small { max-width: 100%; }

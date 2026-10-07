@@ -16,6 +16,7 @@ from .javatools import choose_java, required_java_major
 from .notify import notify
 from .state import (active_players, console_dropped, console_logs, exit_hooks, joined_at, playit_logs, playit_processes,
                     running_servers, start_locks, started_at)
+from . import grim
 from .store import add_playtime, get_server_path, is_playit_running, is_running, load_meta
 
 # Aikar's G1GC flags: the community-standard tuning for Paper-class servers (https://docs.papermc.io/paper/aikars-flags).
@@ -128,6 +129,7 @@ def read_console(server_id, process):
             lines = console_logs[server_id]
             lines.append(text)
             update_active_players(server_id, text)
+            grim.watch_line(server_id, text)
             if len(lines) > 3000:
                 # Count what was trimmed so the client's absolute offset stays valid.
                 console_dropped[server_id] = console_dropped.get(server_id, 0) + 1000

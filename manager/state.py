@@ -13,6 +13,7 @@ backup_jobs = {}
 update_cache = {}
 
 map_cache = {}
+grim_alerts = {}  # server id -> recent GrimAC alerts read from the console
 audit_lock = threading.Lock()
 
 # Called as hook(server_id, exit_code, crashed, deliberate) when a Minecraft process ends.

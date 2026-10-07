@@ -31,7 +31,7 @@ def reset_data():
     util._size_cache.clear()
     auth.last_seen_cache.clear()
     for name in ("running_servers", "console_logs", "console_dropped", "active_players", "playit_processes", "playit_logs",
-                 "import_sessions", "backup_jobs", "update_cache", "map_cache", "started_at", "crash_times", "joined_at", "start_locks"):
+                 "import_sessions", "backup_jobs", "update_cache", "map_cache", "grim_alerts", "started_at", "crash_times", "joined_at", "start_locks"):
         getattr(state, name).clear()
     state.restart_flags.update(pending=False, auto=False)
 

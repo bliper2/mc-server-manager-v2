@@ -29,6 +29,7 @@ EVENTS = {
     "resource_alert": ("High resource use", AMBER, True),
     "server_hung": ("Server not responding", RED, True),
     "disk_low": ("Disk space low", RED, True),
+    "anticheat_alert": ("Anti-cheat alert", AMBER, True),
 }
 EVENT_LABELS = {
     "server_start": "Server starts",
@@ -45,6 +46,7 @@ EVENT_LABELS = {
     "resource_alert": "Sustained high CPU or memory",
     "server_hung": "Server running but not answering",
     "disk_low": "Low disk space",
+    "anticheat_alert": "GrimAC alerts at or above a server's threshold (switched on per server in its Anti-Cheat tab)",
 }
 WEBHOOK_HOSTS = {"discord.com", "discordapp.com", "ptb.discord.com", "canary.discord.com"}
 STATUS_EVENTS = {"server_start", "server_stop", "server_crash", "server_restart", "server_hung"}  # these also wake the Discord status board

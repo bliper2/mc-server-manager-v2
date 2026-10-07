@@ -36,9 +36,10 @@ Open `http://127.0.0.1:5000/` after the server starts.
 - Live console output, command input, pause/resume updates, and log download
 - Live Minecraft latency for each server
 - Players, operators, whitelist, bans, and admin actions
-- Vulcan command shortcuts and an anti-cheat settings panel
+- GrimAC anti-cheat: one-click install, live alert feed, Discord relay, settings, punishments and commands (see below)
 - Properties form editor and raw `server.properties` editor
 - Plugin and mod search through Modrinth, plus update checking and one-click updates for installed jars
+- Plugins/Mods tab with each jar's name, version, authors and description, search, filter and sort, drag-and-drop upload and duplicate detection
 - Top downloaded plugin and mod lists
 - Plugin YAML, YML, and JSON config editor with download support
 - Playit.gg agent configuration and start/stop controls
@@ -120,6 +121,20 @@ running server's jar be overwritten, and the manager reports that rather than fa
 Modrinth lists one project under several loaders (Paper, Fabric, NeoForge, Folia and more), so "the newest version" can be a build your server cannot run. The manager now asks only for builds the server's type accepts: Paper takes Paper, Spigot and Bukkit plugins, Purpur those plus Purpur, and Fabric, Forge and NeoForge servers take their own mods. This applies to **Install**, to the update check and to **Apply update**, and a downloaded file is also looked inside before it is saved: a NeoForge or Fabric mod headed for a Paper `plugins` folder, a Folia-only build or a cut-off download is refused with the reason.
 
 Files that are already in the wrong place are shown in the Plugins/Mods tab with a warning and the reason (for example "This is a NeoForge mod, not a plugin, so Purpur cannot load it" or "Needs ProtocolLib, which is not installed"). **Disable them all** renames them to `.jar.disabled`, so Paper stops logging a stack trace for each one at start-up, and you can turn them back on at any time.
+
+### Plugins and mods tab
+
+Every row shows what the jar says about itself (name, version, authors, description, website), read from its `plugin.yml`, `paper-plugin.yml`, `fabric.mod.json`, `quilt.mod.json` or `mods.toml`. Search covers name, file, description and authors; filter by enabled, disabled or problems; sort by name, problems first, size or newest. **Config** jumps to that plugin's configuration files, and a green chip appears when the update check found a newer build. Drop `.jar` files on the page or use **Upload .jar**: each file is looked inside first, so a mod for the wrong loader, a Folia-only build or a damaged file is refused with the reason. Two jars of the same plugin are flagged on the older one, because Paper loads only one of them and logs "Ambiguous plugin name".
+
+### GrimAC anti-cheat
+
+The Anti-Cheat tab works with [GrimAC](https://modrinth.com/plugin/grimac) (Paper, Purpur, Spigot and Folia). It shows whether Grim is installed, switched off, built for the wrong loader or competing with another anti-cheat, and installs it with one click. Once installed:
+
+- **Alerts** are read from the console (`Grim » Steve failed Reach (x3)`), newest first, with the most flagged players and checks. After a manager restart the list is refilled from `logs/latest.log`.
+- **Alerts to Discord** sends flags at or above a threshold to the notification webhook from Settings (event `anticheat_alert`, which can be switched off there like any other). The same player and check are sent at most once every 5 minutes and never more than 12 per minute.
+- **Settings** edit the common options of `plugins/GrimAC/config.yml`, `discord.yml` and `database.yml`. Comments and layout are kept, a `.manager-backup` copy of the file is written first, the webhook is never sent back to the browser, and Grim is reloaded afterwards if the server is running.
+- **Punishments** shows each group of `punishments.yml` (checks, expiry, actions); the file itself can be edited in place, as can the other Grim files.
+- **Commands** runs `grim reload`, `history`, `profile`, `perf` and the rest from the console. Commands that only work in game are marked.
 
 ## Updating the manager
 
@@ -269,12 +284,13 @@ manager/                   Application code (Flask routes register themselves on
   routes_servers.py  routes_files.py  servertools.py  automation.py   HTTP routes and background jobs
   modpacks.py  curseforge.py  loaders.py  packtools.py   Modpack install: Modrinth and CurseForge sources, Fabric/Forge/NeoForge loaders, shared safe downloads
   logos.py  compat.py        Logo library and image import; which plugin/mod files a server can load
+  jarinfo.py  yamlite.py  grim.py   Jar metadata, a small comment-preserving YAML editor, GrimAC support
   ops.py  web.py             Health, diagnostics, log, disk; security headers, gzip, caching
 tests/                     Unit tests (python -m unittest discover -s tests -t .)
 templates/                 index.html (the panel) and login.html
 static/css/themes.css      One colour block per theme
 static/css/app.css         All other styles
-static/js/                 core, servers, detail, console, files, backups, plugins, settings, staff,
+static/js/                 core, servers, detail, grim, console, files, backups, plugins, settings, staff,
                            automation, modpacks, logos, palette, boot, main (plus map.js and scene.js)
 static/logos/              The bundled server logos, 141 files (made by tools/make_logos.py)
 static/banners/            The 18 bundled banners (made by tools/make_banners.py)

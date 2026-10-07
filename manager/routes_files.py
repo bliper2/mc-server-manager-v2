@@ -9,6 +9,7 @@ from . import app
 from .auth import current_account
 from .backups import auto_update_settings
 from .compat import bytes_problem, folder_problems, loaders_for
+from .jarinfo import plugin_info
 from .providers import apply_plugin_update, download_url_bytes, modrinth_search, modrinth_versions, scan_plugin_updates
 from .state import update_cache
 from .store import get_server_path, load_meta, save_meta
@@ -252,9 +253,53 @@ def api_files(sid):
     for f in path.iterdir():
         lowered = f.name.lower()
         if f.is_file() and (lowered.endswith(".jar") or lowered.endswith(".jar.disabled")):
+            info = plugin_info(f)
             files.append({"name": f.name, "size": f.stat().st_size, "enabled": lowered.endswith(".jar"),
-                          "modified": datetime.fromtimestamp(f.stat().st_mtime).isoformat(), "problem": problems.get(f.name, "")})
+                          "modified": datetime.fromtimestamp(f.stat().st_mtime).isoformat(), "problem": problems.get(f.name, ""),
+                          "info": info, "has_config": folder == "plugins" and (path / info["name"]).is_dir()})
     return jsonify(sorted(files, key=lambda item: item["name"].lower()))
+
+MAX_JAR_BYTES = 256 * 1024 * 1024
+
+
+@app.route("/api/server/<sid>/plugins/upload", methods=["POST"])
+def api_plugin_upload(sid):
+    """Adds .jar files to plugins/ or mods/, checking each one's content: a mod for the wrong loader, a Folia-only build or
+    a damaged download is refused with the reason instead of being dropped into the folder to fail at start-up."""
+    server_path = get_server_path(sid)
+    folder = request.form.get("folder", "plugins")
+    if not server_path.is_dir():
+        return jsonify({"ok": False, "error": "Server not found"}), 404
+    if folder not in DOWNLOAD_FOLDERS:
+        return jsonify({"ok": False, "error": "Target must be plugins or mods"}), 400
+    uploads = request.files.getlist("files")[:40]
+    if not uploads:
+        return jsonify({"ok": False, "error": "Choose one or more .jar files"}), 400
+    server_type = load_meta(sid).get("type")
+    added, skipped = [], []
+    for upload in uploads:
+        name = secure_filename(upload.filename or "")
+        if not name.lower().endswith(".jar"):
+            skipped.append({"name": upload.filename or "file", "reason": "Only .jar files can be added here"})
+            continue
+        data = upload.stream.read(MAX_JAR_BYTES + 1)
+        if len(data) > MAX_JAR_BYTES:
+            skipped.append({"name": name, "reason": "Larger than 256 MB"})
+            continue
+        problem = bytes_problem(data, name, server_type, folder)
+        if problem:
+            skipped.append({"name": name, "reason": problem})
+            continue
+        target_dir = server_path / folder
+        target_dir.mkdir(exist_ok=True)
+        try:
+            (target_dir / name).write_bytes(data)
+        except OSError as exc:
+            skipped.append({"name": name, "reason": f"Could not write it (is the server running?): {exc}"})
+            continue
+        added.append(name)
+    return jsonify({"ok": bool(added), "added": added, "skipped": skipped, "error": "; ".join(f"{s['name']}: {s['reason']}" for s in skipped[:3])}), 200 if added else 400
+
 
 def plugin_file(sid, data):
     """Resolves {folder, name} from a request to an existing .jar or .jar.disabled, or returns (None, error)."""

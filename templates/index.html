@@ -737,21 +737,51 @@
         </div>
 
         <div id="dtab-anticheat" class="dtab-panel">
-          <div class="panel-card anti-cheat-panel">
-            <div class="wiki-heading"><div><span class="eyebrow">Server protection</span><h2>Anti-cheat control</h2></div><span id="anticheat-plugin-status" class="badge offline">Checking plugins</span></div>
-            <p class="hint">These are manager policies and alert controls. Detection itself requires a compatible anti-cheat plugin such as Grim, Matrix, or NoCheatPlus.</p>
-            <div class="anti-cheat-grid">
-              <label class="toggle-card"><input type="checkbox" id="ac-enabled" /><span><strong>Protection enabled</strong><small>Enable this server profile</small></span></label>
-              <label class="toggle-card"><input type="checkbox" id="ac-movement" /><span><strong>Movement checks</strong><small>Speed, fly, step, no-fall</small></span></label>
-              <label class="toggle-card"><input type="checkbox" id="ac-combat" /><span><strong>Combat checks</strong><small>Reach, autoclick, aim</small></span></label>
-              <label class="toggle-card"><input type="checkbox" id="ac-alerts" checked /><span><strong>Admin alerts</strong><small>Send violations to operators</small></span></label>
+          <div class="panel-card grim-status">
+            <div class="wiki-heading"><div><span class="eyebrow">GrimAC</span><h2>Anti-cheat</h2></div><span id="grim-badge" class="badge offline">Checking</span></div>
+            <div id="grim-status-body" class="grim-status-body"><div class="empty">Loading...</div></div>
+          </div>
+          <div id="grim-live" hidden>
+            <div class="panel-card">
+              <div class="wiki-heading"><div><span class="eyebrow">Live</span><h2>Alerts</h2></div><span id="grim-alert-total" class="badge type">0 alerts</span></div>
+              <p class="hint">Read from the server console, newest first. The list refills from the latest log when the manager restarts.</p>
+              <div class="form-row"><div class="form-group"><label for="grim-alert-filter">Player</label><input id="grim-alert-filter" type="text" placeholder="All players" oninput="loadGrimAlerts()" /></div><div class="form-group"><label>&nbsp;</label><label class="backup-option"><input type="checkbox" id="grim-alert-auto" checked /><span>Refresh every 5 seconds</span></label></div></div>
+              <div class="grim-summary"><div><h4>Most flagged players</h4><div id="grim-top-players" class="grim-chips"></div></div><div><h4>Most flagged checks</h4><div id="grim-top-checks" class="grim-chips"></div></div></div>
+              <div id="grim-alert-list" class="grim-alerts"><div class="empty">No alerts yet</div></div>
             </div>
-            <div class="form-row"><div class="form-group"><label for="ac-threshold">Alert threshold</label><input id="ac-threshold" type="number" min="1" max="100" value="5" /></div><div class="form-group"><label for="ac-command">Alert command</label><input id="ac-command" type="text" value="notify" placeholder="notify" /></div></div>
-            <button class="btn primary" onclick="saveAntiCheat()">Save protection profile</button>
-            <div class="vulcan-command-box">
-              <div class="settings-card-heading"><div><span class="eyebrow">Vulcan command center</span><h2>Anti-cheat commands</h2></div><span class="badge type">CONSOLE</span></div>
-              <div class="form-row"><div class="form-group"><label for="vulcan-command">Command</label><select id="vulcan-command" onchange="updateVulcanPreview()"><option value="vulcan alerts">Toggle alerts</option><option value="vulcan verbose">Toggle verbose</option><option value="vulcan checks">View checks</option><option value="vulcan profile {player}">Player profile</option><option value="vulcan violations {player}">Player violations</option><option value="vulcan cps {player}">Player CPS</option><option value="vulcan connection {player}">Connection info</option><option value="vulcan freeze {player}">Freeze or unfreeze</option><option value="vulcan ban {player}">Vulcan ban</option><option value="vulcan reset {player}">Reset violations</option><option value="vulcan disablecheck {player}">Disable check</option><option value="vulcan enablecheck {player}">Enable check</option><option value="jday add {player}">Add to Judgement Day</option><option value="jday remove {player}">Remove from Judgement Day</option><option value="jday list">List Judgement Day</option><option value="jday execute">Execute Judgement Day</option><option value="logs {player} 1">View violation logs</option><option value="punishlogs {player} 1">View punishment logs</option><option value="vulcan reload">Reload Vulcan</option><option value="vulcan testalert">Test alert</option></select></div><div class="form-group"><label for="vulcan-player">Player or check target</label><input id="vulcan-player" type="text" placeholder="Player or check name" oninput="updateVulcanPreview()" /></div></div>
-              <div class="command-preview"><code id="vulcan-preview">/vulcan alerts</code><button class="btn warning small" onclick="sendVulcanCommand()">Run command</button></div>
+            <div class="panel-card">
+              <div class="wiki-heading"><div><span class="eyebrow">Discord</span><h2>Alerts to Discord</h2></div></div>
+              <p class="hint">Sends serious flags to the Discord webhook from Settings. The same player and check are sent at most once every 5 minutes, and never more than 12 per minute.</p>
+              <div class="anti-cheat-grid">
+                <label class="toggle-card"><input type="checkbox" id="ac-discord-relay" data-perm="files" /><span><strong>Send alerts to Discord</strong><small>Needs the Discord webhook in Settings</small></span></label>
+                <div class="form-group"><label for="ac-threshold">Only from this many violations</label><input id="ac-threshold" type="number" min="1" max="100" value="5" data-perm="files" /></div>
+              </div>
+              <button class="btn primary" data-perm="files" onclick="saveAntiCheat()">Save</button>
+            </div>
+            <div class="panel-card">
+              <div class="wiki-heading"><div><span class="eyebrow">Configuration</span><h2>Settings</h2></div></div>
+              <div id="grim-settings"></div>
+              <div class="backup-controls"><button class="btn primary" data-perm="files" onclick="saveGrimSettings()">Save settings</button><label class="backup-option"><input type="checkbox" id="grim-reload-after" checked data-perm="files" /><span>Reload Grim after saving (server running)</span></label></div>
+            </div>
+            <div class="panel-card">
+              <div class="wiki-heading"><div><span class="eyebrow">Punishments</span><h2>What happens when a check flags</h2></div><button class="btn small" onclick="openGrimFile('punishments.yml')">Edit punishments.yml</button></div>
+              <div id="grim-punishments" class="grim-groups"></div>
+            </div>
+            <div class="panel-card">
+              <div class="wiki-heading"><div><span class="eyebrow">Files</span><h2>Grim configuration files</h2></div></div>
+              <div id="grim-files" class="backup-controls"></div>
+              <div id="grim-file-editor" hidden>
+                <div class="fs-editor-bar"><span id="grim-file-name"></span><button class="btn primary small" data-perm="files" onclick="saveGrimFile()">Save</button></div>
+                <textarea id="grim-file-content" class="grim-file-content" spellcheck="false"></textarea>
+                <p class="hint">Save, then run <code>/grim reload</code>. The previous version is not kept, so copy anything important first.</p>
+              </div>
+            </div>
+            <div class="panel-card">
+              <div class="settings-card-heading"><div><span class="eyebrow">Command center</span><h2>Grim commands</h2></div><span class="badge type">CONSOLE</span></div>
+              <div class="form-row"><div class="form-group"><label for="grim-command">Command</label><select id="grim-command" onchange="updateGrimPreview()"></select></div><div class="form-group"><label for="grim-target" id="grim-target-label">Player</label><input id="grim-target" type="text" placeholder="Player name" oninput="updateGrimPreview()" /></div></div>
+              <div class="command-preview"><code id="grim-preview">/grim reload</code><button class="btn warning small" data-perm="console" onclick="sendGrimCommand()">Run command</button></div>
+              <p class="hint">Commands marked "in game" only work for a player in the game, not from the console.</p>
+              <pre id="grim-output" class="grim-output" hidden></pre>
             </div>
           </div>
         </div>
@@ -798,13 +828,24 @@
         </div>
 
         <div id="dtab-plugins" class="dtab-panel">
+          <div class="panel-card plugin-toolbar">
+            <div class="plugin-toolbar-row">
+              <input id="plugin-search" type="search" placeholder="Search installed plugins and mods..." oninput="setPluginView('query', this.value)" aria-label="Search installed plugins and mods" />
+              <select id="plugin-filter" onchange="setPluginView('filter', this.value)" aria-label="Show"><option value="all">All</option><option value="enabled">Enabled</option><option value="disabled">Disabled</option><option value="problem">With problems</option></select>
+              <select id="plugin-sort" onchange="setPluginView('sort', this.value)" aria-label="Sort by"><option value="name">Name</option><option value="status">Problems first</option><option value="size">Largest</option><option value="newest">Newest</option></select>
+              <button class="btn primary small" data-perm="files" onclick="document.getElementById('plugin-upload-input').click()">Upload .jar</button>
+              <input id="plugin-upload-input" type="file" accept=".jar" multiple hidden onchange="uploadPluginFiles(this.files, document.getElementById('plugin-upload-folder').value); this.value = ''" />
+              <select id="plugin-upload-folder" aria-label="Upload to"><option value="plugins">to plugins</option><option value="mods">to mods</option></select>
+            </div>
+            <p class="hint">Drop .jar files anywhere on this page to add them. Each file is checked first, so a mod for the wrong loader is refused instead of breaking the next start.</p>
+          </div>
           <div class="panel-card two-col">
             <div>
-              <h3>Plugins</h3>
+              <h3>Plugins <small id="plugins-count" class="plugin-count"></small></h3>
               <div id="plugins-notice"></div><div id="plugins-list" class="file-list"></div>
             </div>
             <div>
-              <h3>Mods</h3>
+              <h3>Mods <small id="mods-count" class="plugin-count"></small></h3>
               <div id="mods-notice"></div><div id="mods-list" class="file-list"></div>
             </div>
           </div>
@@ -944,6 +985,7 @@
   <script src="/static/js/core.js?v={{ asset }}"></script>
   <script src="/static/js/servers.js?v={{ asset }}"></script>
   <script src="/static/js/detail.js?v={{ asset }}"></script>
+  <script src="/static/js/grim.js?v={{ asset }}"></script>
   <script src="/static/js/console.js?v={{ asset }}"></script>
   <script src="/static/js/files.js?v={{ asset }}"></script>
   <script src="/static/js/backups.js?v={{ asset }}"></script>

@@ -400,7 +400,7 @@ def api_players(sid):
 @app.route("/api/server/<sid>/anticheat", methods=["GET", "POST"])
 def api_anticheat(sid):
     path = get_server_path(sid) / "anti_cheat.json"
-    defaults = {"enabled": False, "movement": False, "combat": False, "alerts": True, "threshold": 5, "command": "notify"}
+    defaults = {"enabled": False, "movement": False, "combat": False, "alerts": True, "threshold": 5, "command": "notify", "discord_relay": False}
     if request.method == "POST":
         data = request.json or {}
         try:
@@ -413,7 +413,8 @@ def api_anticheat(sid):
             "combat": bool(data.get("combat")),
             "alerts": bool(data.get("alerts", True)),
             "threshold": threshold,
-            "command": str(data.get("command") or "notify")[:80]
+            "command": str(data.get("command") or "notify")[:80],
+            "discord_relay": bool(data.get("discord_relay"))  # send GrimAC alerts at or above the threshold to the Discord notifications webhook
         }
         path.write_text(json.dumps(config, indent=2), encoding="utf-8")
         return jsonify({"ok": True, "config": config})
