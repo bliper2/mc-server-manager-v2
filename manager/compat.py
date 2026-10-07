@@ -12,6 +12,8 @@ import zipfile
 from functools import lru_cache
 from pathlib import Path
 
+from .jarinfo import plugin_info
+
 # Modrinth loader names whose files run on a given server type, best match first.
 PLUGIN_LOADERS = {"purpur": ["purpur", "paper", "spigot", "bukkit"], "paper": ["paper", "spigot", "bukkit"]}
 MOD_LOADERS = {"fabric": ["fabric"], "forge": ["forge"], "neoforge": ["neoforge"]}
@@ -121,9 +123,10 @@ def bytes_problem(content: bytes, filename: str, server_type: str, folder: str):
     return _kind_problem(kinds, broken, filename.lower(), server_type, folder)
 
 
-def folder_problems(directory: Path, server_type: str, folder: str) -> dict:
+def folder_problems(directory: Path, server_type: str, folder: str, java: int = 0) -> dict:
     """{file name: reason} for the enabled jars in a plugins or mods folder that the server cannot load.
-    Beyond the wrong-loader checks, a plugin whose hard dependency is not installed is named too."""
+    Beyond the wrong-loader checks, a plugin whose hard dependency is not installed is named too, and so is one compiled
+    for a newer Java than `java` (the major the server runs on, when known)."""
     problems = {}
     if not directory.is_dir():
         return problems
@@ -136,6 +139,10 @@ def folder_problems(directory: Path, server_type: str, folder: str) -> dict:
             problems[jar.name] = reason
         else:
             known[jar] = jar_facts(jar)
+            needed = plugin_info(jar)["java"] if folder == "plugins" else 0
+            if java and needed > java:
+                problems[jar.name] = (f"Built for Java {needed}, but this server runs Java {java}, so it fails at start-up with UnsupportedClassVersionError. "
+                                      f"Use an older build of it, or run the server on Java {needed}")
     if folder == "plugins" and str(server_type or "").lower() in PLUGIN_LOADERS:
         installed = {facts[1].lower() for facts in known.values() if facts[1]}
         for jar, (_, _, depends, _) in known.items():

@@ -480,3 +480,38 @@ class ServerDecidesTheKind(AppTestCase):
         self.assertIn("loads plugins", wrong.get_json()["error"])
         self.assertIn("cannot load plugins or mods", vanilla.get_json()["error"])
         self.assertFalse(fetch.called, "refused before anything is downloaded")
+
+
+class JavaVersionOfPlugins(AppTestCase):
+    """SetSpawn 3.2 was built for Java 26 and failed on a Java 25 server with UnsupportedClassVersionError."""
+
+    def class_jar(self, name, class_major, main="x.Y"):
+        header = b"\xca\xfe\xba\xbe\x00\x00" + (class_major).to_bytes(2, "big") + b"\x00" * 8
+        out = io.BytesIO()
+        with zipfile.ZipFile(out, "w") as bundle:
+            bundle.writestr("plugin.yml", f"name: {name}\nversion: 1\nmain: {main}\n")
+            bundle.writestr(main.replace(".", "/") + ".class", header)
+        return out.getvalue()
+
+    def test_the_class_file_version_gives_the_java_a_plugin_needs(self):
+        path = HOME / "setspawn.jar"
+        path.write_bytes(self.class_jar("SetSpawn", 70))
+        self.assertEqual(jarinfo.plugin_info(path)["java"], 26)
+        path.write_bytes(self.class_jar("Old", 61))
+        self.assertEqual(jarinfo.plugin_info(path)["java"], 17)
+        path.write_bytes(plugin_jar("NoClasses"))
+        self.assertEqual(jarinfo.plugin_info(path)["java"], 0)
+
+    def test_a_plugin_newer_than_the_servers_java_is_flagged(self):
+        folder = make_server(type="purpur", version="26.2")
+        (folder / "plugins").mkdir()
+        (folder / "plugins" / "SetSpawn-3.2.jar").write_bytes(self.class_jar("SetSpawn", 70))
+        (folder / "plugins" / "Fine.jar").write_bytes(self.class_jar("Fine", 69))
+        problems = compat.folder_problems(folder / "plugins", "purpur", "plugins", 25)
+        self.assertEqual(list(problems), ["SetSpawn-3.2.jar"])
+        self.assertIn("Built for Java 26", problems["SetSpawn-3.2.jar"])
+        self.assertEqual(compat.folder_problems(folder / "plugins", "purpur", "plugins", 0), {}, "unknown Java: no guess")
+        with mock.patch.object(routes_files, "choose_java", return_value=("java", 25)):
+            files = {f["name"]: f for f in self.owner().get("/api/server/alpha_1/files?folder=plugins").get_json()}
+        self.assertIn("Java 26", files["SetSpawn-3.2.jar"]["problem"])
+        self.assertEqual(files["Fine.jar"]["problem"], "")

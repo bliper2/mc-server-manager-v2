@@ -10,7 +10,7 @@ from pathlib import Path
 from . import yamlite
 
 MAX_DESCRIPTOR_BYTES = 64 * 1024
-EMPTY = {"name": "", "version": "", "description": "", "authors": [], "website": "", "api": ""}
+EMPTY = {"name": "", "version": "", "description": "", "authors": [], "website": "", "api": "", "java": 0}
 
 
 def _clean(value, limit=240) -> str:
@@ -43,6 +43,23 @@ def _manifest_version(jar) -> str:
     return match.group(1) if match else ""
 
 
+def _java_needed(jar, names, main: str) -> int:
+    """The Java major a plugin was compiled for, from the class file header of its main class (any class when that is not found). 0 if unknown."""
+    entry = main.replace(".", "/") + ".class" if main else ""
+    if entry not in names:
+        entry = next((name for name in names if name.endswith(".class") and not name.startswith("META-INF/")), "")
+    if not entry:
+        return 0
+    try:
+        with jar.open(entry) as handle:
+            header = handle.read(8)
+    except (KeyError, OSError, RuntimeError, zipfile.BadZipFile):
+        return 0
+    if len(header) < 8 or header[:4] != b"\xca\xfe\xba\xbe":
+        return 0
+    return max(0, int.from_bytes(header[6:8], "big") - 44)
+
+
 def read_info(handle, filename: str) -> dict:
     info = dict(EMPTY, authors=[])
     try:
@@ -60,7 +77,7 @@ def read_info(handle, filename: str) -> dict:
                 top = yamlite.top_level(body)
                 authors = yamlite.block_list(body, "authors") or yamlite.block_list(body, "author")
                 info.update(name=top.get("name", ""), version=top.get("version", ""), description=top.get("description", ""), authors=authors,
-                            website=top.get("website", ""), api=top.get("api-version", ""))
+                            website=top.get("website", ""), api=top.get("api-version", ""), java=_java_needed(jar, names, top.get("main", "")))
             elif "fabric.mod.json" in names:
                 data = json.loads(text("fabric.mod.json"))
                 authors = [a.get("name", "") if isinstance(a, dict) else str(a) for a in data.get("authors", [])]
@@ -92,6 +109,7 @@ def read_info(handle, filename: str) -> dict:
     info["description"] = _clean(info["description"])
     info["website"] = _clean(info["website"], 200)
     info["api"] = _clean(info["api"], 20)
+    info["java"] = int(info["java"])
     info["authors"] = [_clean(a, 40) for a in info["authors"] if _clean(a, 40)][:6]
     return info
 
