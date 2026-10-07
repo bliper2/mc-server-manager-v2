@@ -23,6 +23,12 @@ FOLIA_NAME = re.compile(r"(?<![a-z])folia(?![a-z])", re.I)
 MAX_DESCRIPTOR_BYTES = 64 * 1024
 
 
+def folder_for(server_type):
+    """The folder this kind of server loads add-ons from: "plugins" (Paper, Purpur), "mods" (Fabric, Forge, NeoForge) or None (vanilla)."""
+    kind = str(server_type or "").lower()
+    return "plugins" if kind in PLUGIN_LOADERS else "mods" if kind in MOD_LOADERS else None
+
+
 def loaders_for(server_type, folder: str) -> list:
     """The Modrinth loaders to ask for when installing into `folder` ("plugins" or "mods") of this kind of server. Empty means no opinion."""
     return list((PLUGIN_LOADERS if folder == "plugins" else MOD_LOADERS).get(str(server_type or "").lower(), []))

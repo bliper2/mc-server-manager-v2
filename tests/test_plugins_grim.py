@@ -441,3 +441,42 @@ class GrimAlerts(AppTestCase):
         self.assertEqual(reply.get_json()["config"]["discord_relay"], True)
         self.assertEqual(grim.relay_config("alpha_1"), {"discord_relay": True, "threshold": 8})
         self.assertTrue(owner.get("/api/server/alpha_1/anticheat").get_json()["config"]["discord_relay"])
+
+
+class ServerDecidesTheKind(AppTestCase):
+    """A Purpur server must never be offered or sent a NeoForge build, whatever the type picker says."""
+
+    def setUp(self):
+        super().setUp()
+        make_server("purp_1", type="purpur", port=25601)
+        make_server("neo_1", type="neoforge", port=25602)
+        make_server("van_1", type="vanilla", port=25603)
+        self.owner_client = self.owner()
+
+    def test_a_plugin_server_asking_for_mods_still_gets_plugin_builds(self):
+        with mock.patch.object(routes_files, "modrinth_versions", return_value=[]) as lookup:
+            self.owner_client.get("/api/modrinth/versions/abc?server=purp_1&type=mod")
+            self.owner_client.get("/api/modrinth/versions/abc?server=neo_1&type=plugin")
+            self.assertEqual(self.owner_client.get("/api/modrinth/versions/abc?server=van_1&type=plugin").get_json(), [])
+        self.assertEqual(lookup.call_args_list[0].args[2], ["purpur", "paper", "spigot", "bukkit"])
+        self.assertEqual(lookup.call_args_list[1].args[2], ["neoforge"])
+        self.assertEqual(lookup.call_count, 2, "vanilla does not even ask Modrinth")
+
+    def test_searches_follow_the_target_server(self):
+        with mock.patch.object(routes_files, "modrinth_search", return_value={"hits": []}) as search:
+            self.owner_client.get("/api/modrinth/search?q=map&type=mod&server=purp_1")
+            self.owner_client.get("/api/modrinth/featured?type=plugin&server=neo_1")
+            self.owner_client.get("/api/modrinth/search?q=map&type=mod")
+        self.assertEqual(search.call_args_list[0].args[1], "plugin")
+        self.assertEqual((search.call_args_list[1].args[1], search.call_args_list[1].kwargs["loader"]), ("mod", "neoforge"))
+        self.assertEqual((search.call_args_list[2].args[1], search.call_args_list[2].kwargs["loader"]), ("mod", None), "no target, no change")
+
+    def test_installs_go_only_to_the_folder_the_server_loads(self):
+        body = {"url": "https://cdn.modrinth.com/data/x/y.jar", "filename": "x.jar"}
+        with mock.patch.object(routes_files, "download_url_bytes", return_value=plugin_jar("X")) as fetch:
+            wrong = self.owner_client.post("/api/server/purp_1/install", json={**body, "target": "mods"})
+            vanilla = self.owner_client.post("/api/server/van_1/install", json={**body, "target": "plugins"})
+        self.assertEqual((wrong.status_code, vanilla.status_code), (400, 400))
+        self.assertIn("loads plugins", wrong.get_json()["error"])
+        self.assertIn("cannot load plugins or mods", vanilla.get_json()["error"])
+        self.assertFalse(fetch.called, "refused before anything is downloaded")

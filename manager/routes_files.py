@@ -8,7 +8,7 @@ from werkzeug.utils import secure_filename
 from . import app
 from .auth import current_account
 from .backups import auto_update_settings
-from .compat import bytes_problem, folder_problems, loaders_for
+from .compat import bytes_problem, folder_for, folder_problems, loaders_for
 from .jarinfo import plugin_info
 from .providers import apply_plugin_update, download_url_bytes, modrinth_search, modrinth_versions, scan_plugin_updates
 from .state import update_cache
@@ -176,26 +176,50 @@ def api_props_raw_set(sid):
             break
     return jsonify({"ok": True})
 
+def target_server(args):
+    """The server an add-on search or install is for, from ?server=<id>, or None."""
+    sid = args.get("server", "")
+    if SERVER_ID_PATTERN.fullmatch(sid) and get_server_path(sid).is_dir():
+        return load_meta(sid).get("type")
+    return None
+
+
+def search_kind(args):
+    """(project type, loader) for a Modrinth search. A target server decides both: Paper and Purpur get plugins, Fabric, Forge
+    and NeoForge get mods built for that loader, whatever the type picker says."""
+    kind = args.get("type", "plugin")
+    loader = args.get("loader")
+    server_type = target_server(args)
+    folder = folder_for(server_type)
+    if folder == "plugins":
+        return "plugin", loader
+    if folder == "mods":
+        return "mod", (loaders_for(server_type, "mods") or [loader])[0]
+    return kind, loader
+
+
 @app.route("/api/modrinth/search")
 def api_modrinth_search():
+    kind, loader = search_kind(request.args)
     return jsonify(modrinth_search(
         request.args.get("q", ""),
-        request.args.get("type", "plugin"),
+        kind,
         limit=request.args.get("limit", 24, type=int),
         offset=request.args.get("offset", 0, type=int),
         game_version=request.args.get("version"),
-        loader=request.args.get("loader")
+        loader=loader
     ))
 
 @app.route("/api/modrinth/featured")
 def api_modrinth_featured():
+    kind, loader = search_kind(request.args)
     return jsonify(modrinth_search(
         "",
-        request.args.get("type", "plugin"),
+        kind,
         limit=30,
         offset=request.args.get("offset", 0, type=int),
         game_version=request.args.get("version"),
-        loader=request.args.get("loader"),
+        loader=loader,
         index="downloads"
     ))
 
@@ -204,10 +228,12 @@ def api_modrinth_versions(pid):
     """Versions of a project. With ?server=<id>&type=plugin|mod only builds for a loader that server runs are returned
     (Paper and Purpur take Bukkit plugins; Fabric, Forge and NeoForge servers take their own mods)."""
     loader = request.args.get("loader")
-    sid = request.args.get("server", "")
-    if SERVER_ID_PATTERN.fullmatch(sid) and get_server_path(sid).is_dir():
-        folder = "mods" if request.args.get("type") == "mod" else "plugins"
-        loader = loaders_for(load_meta(sid).get("type"), folder) or loader
+    server_type = target_server(request.args)
+    if server_type is not None:
+        folder = folder_for(server_type)
+        if folder is None:
+            return jsonify([])  # vanilla loads neither plugins nor mods
+        loader = loaders_for(server_type, folder)  # the server's own folder decides, not the type the caller asked for
     return jsonify(modrinth_versions(pid, request.args.get("version"), loader))
 
 @app.route("/api/server/<sid>/install", methods=["POST"])
@@ -225,6 +251,12 @@ def api_install(sid):
     path = get_server_path(sid)
     if not path.exists():
         return jsonify({"ok": False, "error": "Server missing"}), 404
+    server_type = load_meta(sid).get("type")
+    own_folder = folder_for(server_type)
+    if own_folder and target != own_folder:
+        return jsonify({"ok": False, "error": f"A {server_type} server loads {own_folder}, not {target}. Choose a {'plugin' if own_folder == 'plugins' else 'mod'} for it"}), 400
+    if own_folder is None:
+        return jsonify({"ok": False, "error": f"A {server_type or 'vanilla'} server cannot load plugins or mods. Use Paper, Purpur, Fabric, Forge or NeoForge"}), 400
     safe_name = secure_filename(filename)
     if not safe_name.lower().endswith(".jar"):
         return jsonify({"ok": False, "error": "Only .jar files can be installed"}), 400

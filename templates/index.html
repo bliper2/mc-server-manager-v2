@@ -352,8 +352,9 @@
         <div class="browser-controls">
           <input type="text" id="search-q" placeholder="Search..." />
           <select id="search-type" onchange="syncSearchType()"><option value="plugin">Plugins</option><option value="mod">Mods</option><option value="modpack">Modpacks (Modrinth)</option><option value="cfpack">Modpacks (CurseForge)</option></select>
-          <select id="search-server" aria-label="Target server"><option value="">Target server...</option></select>
+          <select id="search-server" aria-label="Target server" onchange="onTargetServerChange()"><option value="">Target server...</option></select>
           <button class="btn primary" onclick="searchModrinth()">Search</button>
+          <p id="search-target-note" class="hint" hidden style="flex-basis:100%;margin:.3rem 0 0"></p>
         </div>
         <div class="featured-heading"><span class="eyebrow">Community picks</span><span>Ranked by total downloads on Modrinth</span></div>
         <div class="featured-grid">

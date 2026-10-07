@@ -279,8 +279,12 @@ async function loadServerSelect() {
   const sel = document.getElementById("search-server");
   try {
     const servers = await (await fetch("/api/servers")).json();
+    targetServers = servers;
+    const keep = sel.value;
     sel.innerHTML = '<option value="">Target server...</option>' +
       servers.map(s => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.name)} (${escapeHtml(s.type)} ${escapeHtml(s.version)})</option>`).join("");
+    if (keep && servers.some(s => s.id === keep)) sel.value = keep;
+    else if (servers.length === 1) { sel.value = servers[0].id; onTargetServerChange(); }
   } catch (e) {
     console.error("Could not load servers for dropdown");
   }
@@ -299,12 +303,50 @@ const featuredState = {
 const FEATURED_LISTS = { plugin: "featured-plugins", mod: "featured-mods", modpack: "featured-modpacks", cfpack: "featured-curseforge" };
 let curseforgeConfigured = false;
 
-// One place that knows which service answers which kind of search.
+// What each server type loads. The target server decides this, never the type picker.
+const PLUGIN_SERVERS = ["paper", "purpur"];
+const MOD_SERVERS = ["fabric", "forge", "neoforge"];
+const LOADER_NAMES = { paper: "Paper, Spigot and Bukkit plugins", purpur: "Purpur, Paper, Spigot and Bukkit plugins", fabric: "Fabric mods", forge: "Forge mods", neoforge: "NeoForge mods" };
+let targetServers = [];
+
+function addonKind(serverType) {
+  const type = String(serverType || "").toLowerCase();
+  return PLUGIN_SERVERS.includes(type) ? "plugin" : MOD_SERVERS.includes(type) ? "mod" : "";
+}
+
+function selectedTarget() {
+  const id = document.getElementById("search-server").value;
+  return targetServers.find(server => server.id === id) || null;
+}
+
+// One place that knows which service answers which kind of search. With a target server picked, the server filters by its loader.
 function listingUrl(type, query, offset) {
   if (type === "cfpack") return `/api/curseforge/search?q=${encodeURIComponent(query)}&offset=${offset}`;
+  const target = selectedTarget();
+  const server = target && addonKind(target.type) === type ? `&server=${encodeURIComponent(target.id)}` : "";
   return query
-    ? `/api/modrinth/search?q=${encodeURIComponent(query)}&type=${type}&offset=${offset}&limit=${PAGE_SIZE}`
-    : `/api/modrinth/featured?type=${type}&offset=${offset}`;
+    ? `/api/modrinth/search?q=${encodeURIComponent(query)}&type=${type}&offset=${offset}&limit=${PAGE_SIZE}${server}`
+    : `/api/modrinth/featured?type=${type}&offset=${offset}${server}`;
+}
+
+// Picking a target server switches the search to what that server can load, and says so.
+function onTargetServerChange() {
+  const target = selectedTarget();
+  const note = document.getElementById("search-target-note");
+  const kind = target ? addonKind(target.type) : "";
+  if (target && !kind) {
+    note.textContent = `${target.name} is a ${target.type || "vanilla"} server: it cannot load plugins or mods. Use Paper, Purpur, Fabric, Forge or NeoForge.`;
+    note.hidden = false;
+    return;
+  }
+  note.hidden = !target;
+  if (target) {
+    note.textContent = `${target.name}: ${target.type} server, so this shows ${LOADER_NAMES[target.type] || "add-ons"} only.`;
+    document.getElementById("search-type").value = kind;
+    syncSearchType();
+    loadFeatured();
+    if (document.getElementById("search-q").value.trim()) searchModrinth();
+  }
 }
 
 // Shown above CurseForge lists when the key cannot search and only featured packs are available.
@@ -470,6 +512,13 @@ async function installProject(projectId, title, ptype, targetServerId = "") {
   try {
     showToast(`Finding latest version for ${title}...`, "success");
     const server = (await (await fetch("/api/servers")).json()).find(item => item.id === serverId);
+    // The server's own type decides plugin or mod, so a Purpur server never gets a NeoForge build.
+    const own = addonKind(server?.type);
+    if (!own) {
+      showToast(`${server?.name || "This server"} is a ${server?.type || "vanilla"} server and cannot load plugins or mods`, "error");
+      return;
+    }
+    ptype = own;
     // Ask for builds that match this server's version and loader (Paper/Purpur plugins, Fabric/Forge/NeoForge mods).
     // Newer version names that Modrinth does not tag yet fall back to the newest build for the right loader.
     const base = `/api/modrinth/versions/${encodeURIComponent(projectId)}?server=${encodeURIComponent(serverId)}&type=${ptype === "mod" ? "mod" : "plugin"}`;
@@ -480,7 +529,7 @@ async function installProject(projectId, title, ptype, targetServerId = "") {
       fellBack = versions.length > 0;
     }
     if (!versions.length) {
-      showToast(`No ${title} build for this server's version and type`, "error");
+      showToast(`${title} has no build for this ${server?.type} server (${LOADER_NAMES[server?.type] || "add-ons"} only)`, "error");
       return;
     }
     const ver = versions[0];

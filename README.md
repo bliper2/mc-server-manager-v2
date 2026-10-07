@@ -118,6 +118,8 @@ running server's jar be overwritten, and the manager reports that rather than fa
 
 ### The right loader
 
+Picking a **target server** in Plugins & Mods detects its type: Paper and Purpur servers are shown and sent Bukkit/Paper plugins only, Fabric, Forge and NeoForge servers get mods for their own loader, and the search type switches by itself. The server decides this on the manager side too, so a Purpur server is never sent a NeoForge build whatever the type picker says. Vanilla servers are told they cannot load add-ons.
+
 Modrinth lists one project under several loaders (Paper, Fabric, NeoForge, Folia and more), so "the newest version" can be a build your server cannot run. The manager now asks only for builds the server's type accepts: Paper takes Paper, Spigot and Bukkit plugins, Purpur those plus Purpur, and Fabric, Forge and NeoForge servers take their own mods. This applies to **Install**, to the update check and to **Apply update**, and a downloaded file is also looked inside before it is saved: a NeoForge or Fabric mod headed for a Paper `plugins` folder, a Folia-only build or a cut-off download is refused with the reason.
 
 Files that are already in the wrong place are shown in the Plugins/Mods tab with a warning and the reason (for example "This is a NeoForge mod, not a plugin, so Purpur cannot load it" or "Needs ProtocolLib, which is not installed"). **Disable them all** renames them to `.jar.disabled`, so Paper stops logging a stack trace for each one at start-up, and you can turn them back on at any time.
