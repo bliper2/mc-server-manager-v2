@@ -511,7 +511,7 @@ class JavaVersionOfPlugins(AppTestCase):
         self.assertEqual(list(problems), ["SetSpawn-3.2.jar"])
         self.assertIn("Built for Java 26", problems["SetSpawn-3.2.jar"])
         self.assertEqual(compat.folder_problems(folder / "plugins", "purpur", "plugins", 0), {}, "unknown Java: no guess")
-        with mock.patch.object(routes_files, "choose_java", return_value=("java", 25)):
+        with mock.patch.object(routes_files, "java_for", return_value=("java", 25)):
             files = {f["name"]: f for f in self.owner().get("/api/server/alpha_1/files?folder=plugins").get_json()}
         self.assertIn("Java 26", files["SetSpawn-3.2.jar"]["problem"])
         self.assertEqual(files["Fine.jar"]["problem"], "")

@@ -1042,3 +1042,12 @@ button.grim-chip:hover { border-color: var(--green); }
 #dtab-plugins .panel-card.two-col { grid-template-columns: minmax(0, 1fr); }
 #dtab-plugins .panel-card.two-col > div { min-width: 0; }
 .plugin-row .plugin-name > small { max-width: 100%; }
+
+/* ---------- Let friends join ---------- */
+.connect-card { margin-top: 1rem; }
+.connect-list { display: flex; flex-direction: column; gap: .4rem; margin: .6rem 0; }
+.connect-row { display: flex; align-items: center; justify-content: space-between; gap: .6rem; padding: .5rem .65rem; background: var(--bg); border: 1px solid var(--line); border-radius: 5px; }
+.connect-row strong { display: block; font: .78rem var(--mono); word-break: break-all; }
+.connect-row small { color: var(--muted); font-size: .68rem; }
+.connect-note { margin: .5rem 0 0; font-size: .72rem; line-height: 1.4; }
+.connect-note code { display: block; margin-top: .3rem; word-break: break-all; }

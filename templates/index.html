@@ -611,6 +611,13 @@
                 </div>
                 <div id="detail-info"></div>
               </div>
+              <div class="info-card connect-card">
+                <div class="playit-heading"><h3>Let friends join</h3><span id="connect-badge" class="badge offline">Checking</span></div>
+                <p class="hint" id="connect-hint">Friends must be on the same network as the address you give them.</p>
+                <div id="connect-list" class="connect-list"></div>
+                <div id="connect-notes"></div>
+                <div class="detail-actions"><button class="btn small" onclick="loadConnect()">Refresh</button><button class="btn small" id="btn-public-ip" onclick="showPublicAddress()">Show public address</button></div>
+              </div>
               <div class="info-card playit-card">
                 <div class="playit-heading"><h3>Playit.gg tunnel</h3><span id="playit-status" class="badge offline">Not configured</span></div>
                 <p class="hint">Expose this server without port forwarding. Install the Playit agent, then paste its secret here.</p>
@@ -695,6 +702,7 @@
             <p class="hint">Memory and Java flags used the next time this server starts. <strong>Optimized</strong> uses Aikar's G1GC flags, the usual choice for Paper and Purpur.</p>
             <div class="form-row">
               <div class="form-group"><label for="launch-ram">Memory (MB)</label><input type="number" id="launch-ram" min="512" max="65536" step="256" /></div>
+              <div class="form-group"><label for="launch-java">Java version</label><select id="launch-java"><option value="">Automatic</option></select></div>
               <div class="form-group"><label for="launch-flags">Java flags</label><select id="launch-flags" onchange="updateLaunchUi()"><option value="default">Default</option><option value="optimized">Optimized (Aikar)</option><option value="custom">Custom</option></select></div>
             </div>
             <div class="form-group" id="launch-custom-group" hidden><label for="launch-custom">Custom flags</label><input type="text" id="launch-custom" placeholder="-XX:+UseZGC -Dsome.setting=true" spellcheck="false" /><small class="field-hint">Plain -X, -XX and -D options only. Memory and the jar are set by the manager.</small></div>
@@ -987,6 +995,7 @@
   <script src="/static/js/servers.js?v={{ asset }}"></script>
   <script src="/static/js/detail.js?v={{ asset }}"></script>
   <script src="/static/js/grim.js?v={{ asset }}"></script>
+  <script src="/static/js/connect.js?v={{ asset }}"></script>
   <script src="/static/js/console.js?v={{ asset }}"></script>
   <script src="/static/js/files.js?v={{ asset }}"></script>
   <script src="/static/js/backups.js?v={{ asset }}"></script>

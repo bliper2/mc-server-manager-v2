@@ -82,13 +82,34 @@ def java_candidates() -> list:
     return found
 
 
-def choose_java(required: int | None):
-    """Pick (path, major): the lowest installed Java that satisfies `required`, else the newest installed.
-    Returns (None, None) when no Java exists at all."""
-    installed = [(path, java_major(path)) for path in java_candidates()]
-    installed = [(path, major) for path, major in installed if major]
+def installed_javas() -> list:
+    """[(path, major)] for every Java found on this PC, lowest major first."""
+    found = [(path, java_major(path)) for path in java_candidates()]
+    return sorted(((path, major) for path, major in found if major), key=lambda item: item[1])
+
+
+def preferred_java(meta: dict):
+    """The Java major a server was told to use (Launch settings), or None for automatic."""
+    stored = meta.get("launch") if isinstance(meta.get("launch"), dict) else {}
+    value = str(stored.get("java") or "")
+    return int(value) if value.isdigit() else None
+
+
+def java_for(meta: dict):
+    """(path, major) a server will start on: its chosen Java when that is installed and new enough, otherwise the automatic pick."""
+    return choose_java(required_java_major(meta.get("version")), preferred_java(meta))
+
+
+def choose_java(required: int | None, prefer: int | None = None):
+    """Pick (path, major): the Java the server was told to use when it is installed and satisfies `required`, else the
+    lowest installed Java that does, else the newest installed. Returns (None, None) when no Java exists at all."""
+    installed = installed_javas()
     if not installed:
         return None, None
+    if prefer:
+        chosen = [item for item in installed if item[1] == prefer and (not required or item[1] >= required)]
+        if chosen:
+            return chosen[0]
     if required:
         suitable = sorted((item for item in installed if item[1] >= required), key=lambda item: item[1])
         if suitable:
@@ -96,9 +117,9 @@ def choose_java(required: int | None):
     return sorted(installed, key=lambda item: item[1], reverse=True)[0]
 
 
-def java_status(mc_version: str | None = None) -> dict:
+def java_status(mc_version: str | None = None, prefer: int | None = None) -> dict:
     required = required_java_major(mc_version)
-    path, major = choose_java(required)
+    path, major = choose_java(required, prefer)
     return {
         "found": bool(path),
         "path": path,

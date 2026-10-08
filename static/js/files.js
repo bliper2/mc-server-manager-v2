@@ -279,6 +279,9 @@ async function loadLaunch() {
     document.getElementById("launch-ram").value = data.ram;
     document.getElementById("launch-flags").value = data.flags;
     document.getElementById("launch-custom").value = data.custom_flags;
+    // Only versions that are installed and new enough for this Minecraft version; "Automatic" picks the lowest that fits.
+    document.getElementById("launch-java").innerHTML = '<option value="">Automatic</option>' + data.javas.map(major => `<option value="${major}">Java ${major}</option>`).join("");
+    document.getElementById("launch-java").value = data.java;
     updateLaunchUi();
   } catch (error) {
     showToast(error.message, "error");
@@ -290,10 +293,11 @@ async function saveLaunch(button) {
     try {
       const data = await requestJson(`/api/server/${currentServerId}/launch`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ram: Number(document.getElementById("launch-ram").value), flags: document.getElementById("launch-flags").value, custom_flags: document.getElementById("launch-custom").value })
+        body: JSON.stringify({ java: document.getElementById("launch-java").value, ram: Number(document.getElementById("launch-ram").value), flags: document.getElementById("launch-flags").value, custom_flags: document.getElementById("launch-custom").value })
       });
       if (!data.ok) throw new Error(data.error);
       currentServerRam = data.ram;
+      loadServerJava(currentServerVersion);
       showToast(data.restart_required ? "Saved. Restart the server to use the new settings." : "Launch settings saved", "success");
       loadLaunch();
     } catch (error) {

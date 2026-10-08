@@ -46,6 +46,7 @@ let summaryKey = "";
 let consoleLineCount = 0;
 let currentServerRam = 2048;
 let currentServerPort = 25565;
+let currentServerVersion = "";
 let knownServers = [];
 
 const IS_OWNER = document.body.dataset.role === "owner";

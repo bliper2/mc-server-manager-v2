@@ -26,6 +26,7 @@ async function openServer(id) {
     return;
   }
   currentServerRam = Number(s.ram) || 2048;
+  currentServerVersion = s.version;
   currentServerPort = Number(s.port) || 25565;
   updateDetailStats(null);
   document.getElementById("detail-title").textContent = s.name;
@@ -47,6 +48,7 @@ async function openServer(id) {
   startConsolePolling();
   loadPluginMods();
   loadPlayit();
+  loadConnect();
   loadStatusHook();
 }
 
@@ -166,7 +168,7 @@ function pickServerLogo() {
 async function loadServerJava(version) {
   const cell = document.getElementById("detail-java");
   try {
-    const data = await requestJson(`/api/java?version=${encodeURIComponent(version)}`);
+    const data = await requestJson(`/api/java?version=${encodeURIComponent(version)}&server=${encodeURIComponent(currentServerId || "")}`);
     if (!cell) return;
     if (!data.found) cell.innerHTML = '<span class="warn-text">Not installed</span>';
     else if (!data.ok) cell.innerHTML = `<span class="warn-text">Java ${data.major}, needs ${data.required}+</span>`;
@@ -481,7 +483,7 @@ async function cloneServer(button) {
 }
 
 function copyAddress() {
-  copyText(`localhost:${currentServerPort}`);
+  copyText(bestAddress());
 }
 
 function renderActivePlayers(players) {

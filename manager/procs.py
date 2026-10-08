@@ -12,7 +12,7 @@ from pathlib import Path
 
 from .config import MAX_RAM_MB, MIN_RAM_MB
 
-from .javatools import choose_java, required_java_major
+from .javatools import choose_java, preferred_java, required_java_major
 from .notify import notify
 from .state import (active_players, console_dropped, console_logs, exit_hooks, joined_at, playit_logs, playit_processes,
                     running_servers, start_locks, started_at)
@@ -49,7 +49,8 @@ def launch_settings(meta: dict) -> dict:
     stored = meta.get("launch") if isinstance(meta.get("launch"), dict) else {}
     mode = stored.get("flags") if stored.get("flags") in ("default", "optimized", "custom") else "default"
     flags, _ = parse_custom_flags(stored.get("custom_flags", ""))
-    return {"flags": mode, "custom_flags": " ".join(flags)}
+    java = str(stored.get("java") or "")
+    return {"flags": mode, "custom_flags": " ".join(flags), "java": java if java.isdigit() else ""}
 
 def args_file(meta: dict, server_dir):
     """The start-up arguments file of a Forge or NeoForge server, or None for a plain jar server."""
@@ -130,6 +131,8 @@ def read_console(server_id, process):
             lines.append(text)
             update_active_players(server_id, text)
             grim.watch_line(server_id, text)
+            if not getattr(process, "mcm_ready", True) and "Done (" in text and "For help, type" in text:
+                process.mcm_ready = True
             if len(lines) > 3000:
                 # Count what was trimmed so the client's absolute offset stays valid.
                 console_dropped[server_id] = console_dropped.get(server_id, 0) + 1000
@@ -207,7 +210,7 @@ def _start_server(server_id, ram_mb, automatic):
     elif not jar_path.exists():
         return False, f"JAR missing: {jar_name}"
     required = required_java_major(meta.get("version"))
-    java, major = choose_java(required)
+    java, major = choose_java(required, preferred_java(meta))
     if not java:
         return False, "Java not found. Open Settings > Java and click Install Java, or install Java 21 from adoptium.net and restart the manager."
     if required and major and major < required:
@@ -223,6 +226,7 @@ def _start_server(server_id, ram_mb, automatic):
         return False, "Java could not be launched. Reinstall Java and restart the manager."
     except Exception as e:
         return False, str(e)
+    process.mcm_ready = False  # set once the console prints "Done"; a stop before that would hit the server half-built
     running_servers[server_id] = process
     started_at[server_id] = time.time()
     active_players[server_id] = []
@@ -233,11 +237,20 @@ def _start_server(server_id, ram_mb, automatic):
         notify("server_start", f"Started with {ram_mb} MB on port {meta.get('port', 25565)}", server_id)
     return True, "Server started"
 
+STARTUP_STOP_WAIT = 180  # seconds a stop waits for a server that is still starting
+
+
 def stop_server(server_id, announce=True):
     if not is_running(server_id):
         return False, "Not running"
     process = running_servers[server_id]
     process.mcm_deliberate = True  # per process, so a quick restart cannot confuse the old exit with a crash
+    # Purpur and Paper throw a NullPointerException when /stop arrives before the worlds are loaded and then keep running,
+    # so a stop during start-up waits for the "Done" line (or the process ending) instead.
+    waited = 0.0
+    while getattr(process, "mcm_ready", True) is False and process.poll() is None and waited < STARTUP_STOP_WAIT:
+        time.sleep(0.5)
+        waited += 0.5
     try:
         if process.stdin:
             process.stdin.write(b"stop\n")

@@ -12,7 +12,7 @@ from .auth import require_owner
 from .backups import auto_backup_settings, auto_update_settings, run_backup_task, start_job
 from . import metrics
 from .config import MAINTENANCE_INTERVAL, SERVERS_DIR
-from .javatools import java_status, start_java_install
+from .javatools import java_status, preferred_java, start_java_install
 from .lifecycle import begin_restart, resume_servers, running_server_ids, supervised
 from .notify import notify, public_settings, send_test, update_settings
 from .ops import LOW_DISK_MB, disk_free_mb
@@ -21,6 +21,7 @@ from .providers import apply_plugin_update, scan_plugin_updates
 from .state import active_players, backup_jobs, crash_times, exit_hooks, restart_flags
 from .store import audit, get_server_path, is_running, load_meta, save_meta
 from .updater import check_manager_update
+from .util import SERVER_ID_PATTERN
 
 SCHEDULER_TICK = 15
 CPU_ALERT_PERCENT = 90
@@ -317,7 +318,9 @@ def api_notifications_test():
 
 @app.route("/api/java")
 def api_java():
-    return jsonify({"ok": True, **java_status(request.args.get("version"))})
+    sid = request.args.get("server", "")
+    prefer = preferred_java(load_meta(sid)) if SERVER_ID_PATTERN.fullmatch(sid) else None  # the Java a server was told to use
+    return jsonify({"ok": True, **java_status(request.args.get("version"), prefer)})
 
 
 @app.route("/api/java/install", methods=["POST"])

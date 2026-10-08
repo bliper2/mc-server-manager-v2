@@ -43,6 +43,8 @@ Open `http://127.0.0.1:5000/` after the server starts.
 - Top downloaded plugin and mod lists
 - Plugin YAML, YML, and JSON config editor with download support
 - Playit.gg agent configuration and start/stop controls
+- "Let friends join" card: every address a server can be reached on and who can use each one, listening and firewall checks, whitelist warnings
+- Per-server Java version, and a stop that waits for a still-starting server
 - Server logos and banners: 141 bundled logos (13 animated GIFs) and 18 bundled banners (8 animated GIFs), a community library on GitHub, bulk image import and Pinterest pin import
 - 36 accent colours, each tuned for the dark and the light themes
 - Live map of online players with a moderation drawer, over RCON
@@ -137,6 +139,16 @@ The Anti-Cheat tab works with [GrimAC](https://modrinth.com/plugin/grimac) (Pape
 - **Settings** edit the common options of `plugins/GrimAC/config.yml`, `discord.yml` and `database.yml`. Comments and layout are kept, a `.manager-backup` copy of the file is written first, the webhook is never sent back to the browser, and Grim is reloaded afterwards if the server is running.
 - **Punishments** shows each group of `punishments.yml` (checks, expiry, actions); the file itself can be edited in place, as can the other Grim files.
 - **Commands** runs `grim reload`, `history`, `profile`, `perf` and the rest from the console. Commands that only work in game are marked.
+
+### Letting friends join
+
+The **Let friends join** card on a server's Console tab lists the addresses this PC can be reached on, with a Copy button each: `localhost` (only you), your home network (friends on the same Wi-Fi or router), and VPN adapters such as Radmin VPN or Tailscale (only people on the same VPN). Virtual adapters (VMware, Docker, WSL) are left out, and **Show public address** looks up your internet-facing address on request. The card also says whether anything is accepting connections on the port yet, and on Windows whether a firewall rule for it exists (with the PowerShell command to add one if not). When `online-mode` is off and the whitelist is off, it warns that anyone who finds the address can join. *Copy address* in the server info now copies the best home-network address instead of `localhost`.
+
+Two people on "the same internet" are not always on the same network: a PC behind a second router has a different address range from one on the main router (for example `10.150.9.x` against `192.168.8.x`), and neither can reach the other directly. Put both on the same Wi-Fi or router, use a VPN or tunnel, or forward the port on the router.
+
+### Java version and stopping
+
+**Properties > Launch settings > Java version** picks which installed Java a server starts on. *Automatic* uses the lowest one that fits the Minecraft version; a choice is only accepted if that Java is installed and new enough. The Plugins/Mods tab's Java check uses the same choice, so a Java 26 plugin stops being flagged once the server runs on Java 26. Stopping a server that is still starting waits for its `Done` line (up to 3 minutes) before sending `stop`, because Purpur and Paper throw a NullPointerException when `/stop` arrives before the worlds are loaded.
 
 ## Updating the manager
 
@@ -287,12 +299,13 @@ manager/                   Application code (Flask routes register themselves on
   modpacks.py  curseforge.py  loaders.py  packtools.py   Modpack install: Modrinth and CurseForge sources, Fabric/Forge/NeoForge loaders, shared safe downloads
   logos.py  compat.py        Logo library and image import; which plugin/mod files a server can load
   jarinfo.py  yamlite.py  grim.py   Jar metadata, a small comment-preserving YAML editor, GrimAC support
+  connect.py                 Addresses, listening and firewall checks for the Let friends join card
   ops.py  web.py             Health, diagnostics, log, disk; security headers, gzip, caching
 tests/                     Unit tests (python -m unittest discover -s tests -t .)
 templates/                 index.html (the panel) and login.html
 static/css/themes.css      One colour block per theme
 static/css/app.css         All other styles
-static/js/                 core, servers, detail, grim, console, files, backups, plugins, settings, staff,
+static/js/                 core, servers, detail, grim, connect, console, files, backups, plugins, settings, staff,
                            automation, modpacks, logos, palette, boot, main (plus map.js and scene.js)
 static/logos/              The bundled server logos, 141 files (made by tools/make_logos.py)
 static/banners/            The 18 bundled banners (made by tools/make_banners.py)

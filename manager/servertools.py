@@ -7,6 +7,7 @@ from datetime import datetime
 from flask import jsonify, request
 
 from . import app
+from .javatools import installed_javas, required_java_major
 from .procs import AIKAR_FLAGS, launch_settings, parse_custom_flags
 from .rconmap import write_properties
 from .state import joined_at
@@ -59,10 +60,21 @@ def api_launch(sid):
             return jsonify({"ok": False, "error": "Memory must be a number"}), 400
         if not MIN_RAM_MB <= ram <= MAX_RAM_MB:
             return jsonify({"ok": False, "error": f"Memory must be between {MIN_RAM_MB} and {MAX_RAM_MB} MB"}), 400
+        java = str(data.get("java") or "")
+        if java:
+            majors = {major for _, major in installed_javas()}
+            needed = required_java_major(meta.get("version")) or 0
+            if not java.isdigit() or int(java) not in majors:
+                return jsonify({"ok": False, "error": "That Java is not installed on this PC"}), 400
+            if int(java) < needed:
+                return jsonify({"ok": False, "error": f"Minecraft {meta.get('version')} needs Java {needed} or newer"}), 400
         meta["ram"] = clamp_ram(ram)
-        meta["launch"] = {"flags": mode, "custom_flags": " ".join(flags)}
+        meta["launch"] = {"flags": mode, "custom_flags": " ".join(flags), "java": java}
         save_meta(sid, meta)
-    return jsonify({"ok": True, "ram": int(meta.get("ram", 2048)), **launch_settings(meta), "aikar": " ".join(AIKAR_FLAGS), "running": is_running(sid),
+    needed = required_java_major(meta.get("version")) or 0
+    javas = sorted({major for _, major in installed_javas() if major >= needed})
+    return jsonify({"ok": True, "ram": int(meta.get("ram", 2048)), **launch_settings(meta), "javas": javas, "java_required": needed or None,
+                    "aikar": " ".join(AIKAR_FLAGS), "running": is_running(sid),
                     "restart_required": request.method == "POST" and is_running(sid)})
 
 

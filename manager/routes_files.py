@@ -10,7 +10,7 @@ from .auth import current_account
 from .backups import auto_update_settings
 from .compat import bytes_problem, folder_for, folder_problems, loaders_for
 from .jarinfo import plugin_info
-from .javatools import choose_java, required_java_major
+from .javatools import java_for
 from .providers import apply_plugin_update, download_url_bytes, modrinth_search, modrinth_versions, scan_plugin_updates
 from .state import update_cache
 from .store import get_server_path, load_meta, save_meta
@@ -283,7 +283,7 @@ def api_files(sid):
         return jsonify([])
     files = []
     meta = load_meta(sid)
-    java = choose_java(required_java_major(meta.get("version")))[1] or 0 if folder == "plugins" else 0  # the Java the server will start on
+    java = java_for(meta)[1] or 0 if folder == "plugins" else 0  # the Java the server will start on
     problems = folder_problems(path, meta.get("type"), folder, java)  # jars this server cannot load, with the reason
     for f in path.iterdir():
         lowered = f.name.lower()
