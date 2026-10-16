@@ -6,11 +6,10 @@ document.querySelectorAll(".nav-btn").forEach(btn => {
 
 document.getElementById("server-filter").addEventListener("click", event => {
   const btn = event.target.closest(".filter-pill");
-  if (!btn) return;
+  if (!btn || btn.dataset.filter === serverFilter) return;
   serverFilter = btn.dataset.filter;
   document.querySelectorAll("#server-filter .filter-pill").forEach(p => p.classList.toggle("active", p === btn));
-  serversSettled = false;
-  loadServers();
+  repaintServers();
 });
 
 document.getElementById("servers-list").addEventListener("keydown", event => {
@@ -126,9 +125,7 @@ document.addEventListener("pointermove", event => {
 
 document.getElementById("server-search").addEventListener("input", event => {
   serverQuery = event.target.value;
-  serversSettled = false;
-  serversHtml = "";
-  loadServers();
+  repaintServers();
 });
 
 const sortSelect = document.getElementById("server-sort");
@@ -136,9 +133,7 @@ sortSelect.value = serverSort;
 sortSelect.addEventListener("change", () => {
   serverSort = sortSelect.value;
   try { localStorage.setItem("mc-manager-list", JSON.stringify({ sort: serverSort })); } catch {}
-  serversSettled = false;
-  serversHtml = "";
-  loadServers();
+  repaintServers();
 });
 
 document.getElementById("fs-content").addEventListener("input", () => setFsDirty(true));

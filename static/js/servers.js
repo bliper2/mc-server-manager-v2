@@ -44,50 +44,102 @@ function chooseCreateLogo() {
   });
 }
 
+let lastStats = null;
+let pingedKey = "";
+let livePlayerTotal = null;
+
+function serverPlayerTotal(servers) {
+  if (livePlayerTotal != null) return livePlayerTotal;
+  return servers.reduce((sum, server) => sum + (Number(server.players) || 0), 0);
+}
+
+function countNodes(root) {
+  if (root.matches?.("[data-count-to]")) return [root];
+  return [...root.querySelectorAll("[data-count-to]")];
+}
+
 function renderServerSummary(servers) {
   const summary = document.getElementById("server-summary");
   if (!summary) return;
   const total = servers.length;
   const online = servers.filter(s => s.running).length;
+  const offline = total - online;
+  const players = serverPlayerTotal(servers);
   const totalRam = servers.reduce((sum, s) => sum + (Number(s.ram) || 2048), 0);
-  const primaryPort = servers[0]?.port || 25565;
-  const key = [total, online, totalRam, primaryPort].join("|");
-  if (key === summaryKey) return;
-  summaryKey = key;
+  const ratio = total ? online / total : 0;
+  const structure = [total, online, totalRam].join("|");
+  const playerNode = summary.querySelector("[data-fleet='players']");
+  if (summary.querySelector(".fleet-hud") && structure === summaryKey && playerNode) {
+    if (Number(playerNode.dataset.countTo) !== players) {
+      playerNode.dataset.countTo = String(players);
+      animateCounts(playerNode);
+    }
+    const caption = summary.querySelector("[data-fleet='player-caption']");
+    if (caption) caption.textContent = online ? "on running servers" : "no servers running";
+    return;
+  }
+  summaryKey = structure;
+  const ring = 94.25;
   summary.innerHTML = `
-    <div class="summary-pill">
-      <span class="summary-label">Total Servers</span>
-      <strong data-count-to="${total}">0</strong>
-    </div>
-    <div class="summary-pill online-pill">
-      <span class="summary-label">Online Servers</span>
-      <strong data-count-to="${online}">0</strong>
-    </div>
-    <div class="summary-pill">
-      <span class="summary-label">Total Memory</span>
-      <strong>${formatRam(totalRam)}</strong>
-    </div>
-    <div class="summary-pill">
-      <span class="summary-label">Primary Port</span>
-      <strong>${total ? primaryPort : "—"}</strong>
+    <div class="fleet-hud">
+      <div class="hud-gauge" role="img" aria-label="${online} of ${total} servers online">
+        <svg viewBox="0 0 36 36" class="hud-ring" aria-hidden="true">
+          <circle class="hud-ring-track" cx="18" cy="18" r="15"></circle>
+          <circle class="hud-ring-value" cx="18" cy="18" r="15" style="stroke-dasharray:${ring};stroke-dashoffset:${(1 - ratio) * ring}"></circle>
+        </svg>
+        <div class="hud-gauge-copy">
+          <span class="summary-label">Fleet</span>
+          <strong><span data-count-to="${online}">0</span><small>/${total}</small></strong>
+          <em>${total ? Math.round(ratio * 100) : 0}% running</em>
+        </div>
+      </div>
+      <div class="summary-pill online-pill">
+        <span class="summary-label">Players</span>
+        <strong data-count-to="${players}" data-fleet="players">0</strong>
+        <em data-fleet="player-caption">${online ? "on running servers" : "no servers running"}</em>
+      </div>
+      <div class="summary-pill">
+        <span class="summary-label">Memory reserved</span>
+        <strong>${formatRam(totalRam)}</strong>
+        <em>${total ? `across ${total} server${total === 1 ? "" : "s"}` : "nothing allocated"}</em>
+      </div>
+      <div class="summary-pill${offline ? " idle-pill" : ""}">
+        <span class="summary-label">Stopped</span>
+        <strong data-count-to="${offline}">0</strong>
+        <em>${offline ? "ready to start" : "everything is up"}</em>
+      </div>
+      <div class="summary-pill hud-host" id="fleet-load">
+        <span class="summary-label">This computer</span>
+        <div class="live-row"><span>CPU</span><i class="bar"><b data-host="cpu"></b></i><em data-host-val="cpu">—</em></div>
+        <div class="live-row ram"><span>RAM</span><i class="bar"><b data-host="ram"></b></i><em data-host-val="ram">—</em></div>
+      </div>
     </div>
   `;
   animateCounts(summary);
+  if (lastStats) paintHost(lastStats.host);
 }
 
 function animateCounts(root) {
+  const nodes = countNodes(root);
   if (document.body.classList.contains("reduced-motion")) {
-    root.querySelectorAll("[data-count-to]").forEach(el => { el.textContent = el.dataset.countTo; });
+    nodes.forEach(el => { el.textContent = el.dataset.countTo; });
     return;
   }
-  root.querySelectorAll("[data-count-to]").forEach(el => {
+  nodes.forEach(el => {
     const target = Number(el.dataset.countTo) || 0;
+    const current = Number(el.textContent);
+    const from = Number.isFinite(current) ? current : 0;
+    if (from === target) {
+      el.textContent = String(target);
+      return;
+    }
     const start = performance.now();
     const duration = 420;
     const step = now => {
+      if (el.dataset.countTo !== String(target)) return;
       const p = Math.min(1, (now - start) / duration);
       const eased = 1 - Math.pow(1 - p, 3);
-      el.textContent = Math.round(target * eased);
+      el.textContent = String(Math.round(from + (target - from) * eased));
       if (p < 1) requestAnimationFrame(step);
     };
     requestAnimationFrame(step);
@@ -122,6 +174,9 @@ function serverCardHtml(s, i) {
   const power = s.running
     ? '<svg viewBox="0 0 16 16" fill="currentColor" stroke="none"><rect x="3.5" y="3.5" width="9" height="9" rx="1.5"/></svg> Stop'
     : '<svg viewBox="0 0 16 16" fill="currentColor" stroke="none"><path d="M4 2.5v11l9-5.5-9-5.5z"/></svg> Start';
+  const players = Number(s.players) || 0;
+  const tunnel = s.playit_running ? `<span class="badge tunnel" title="Playit tunnel is running">Tunnel</span>` : "";
+  const added = relativeTime(s.created);
   return `
       <div class="server-card ${s.running ? "online" : "offline"}" style="--i:${i}" tabindex="0" role="button" aria-label="Open ${escapeHtml(s.name)}" onclick="openServer(${id})">
         ${banner}
@@ -134,23 +189,78 @@ function serverCardHtml(s, i) {
         </div>
         <div class="meta">
           <span class="badge type">${escapeHtml(s.type)} ${escapeHtml(s.version)}</span>
-          ${s.running && s.players ? `<span class="badge online" title="Players online">${s.players} online</span>` : ""}
-          <span class="server-ping" data-ping-for="${escapeHtml(s.id)}">-- ms</span>
+          ${tunnel}
+          ${s.running ? `<span class="badge players" title="Players online">${players} playing</span>` : ""}
+          <span class="server-ping${s.running ? "" : " is-idle"}" data-ping-for="${escapeHtml(s.id)}">${s.running ? "…" : "stopped"}</span>
+          <span class="server-age" title="${escapeHtml(s.created || "")}">${escapeHtml(added)}</span>
         </div>
         <div class="server-meta-grid">
           <div><span>RAM</span><strong>${formatRam(s.ram || 2048)}</strong></div>
           <div><span>Port</span><strong>${s.port || 25565}</strong></div>
-          <div><span>Created</span><strong>${new Date(s.created || Date.now()).toLocaleDateString()}</strong></div>
+          <div><span>Players</span><strong data-slot="players">${s.running ? players : "—"}</strong></div>
         </div>
         <div class="card-live" data-live-for="${escapeHtml(s.id)}" data-ram-limit="${Number(s.ram) || 2048}" ${s.running ? "" : "hidden"}>
           <div class="live-row"><span>CPU</span><i class="bar"><b data-bar="cpu"></b></i><em data-val="cpu">-</em></div>
-          <div class="live-row"><span>RAM</span><i class="bar"><b data-bar="ram"></b></i><em data-val="ram">-</em></div>
+          <div class="live-row ram"><span>RAM</span><i class="bar"><b data-bar="ram"></b></i><em data-val="ram">-</em></div>
         </div>
         <div class="card-actions">
           <button class="mini-btn ${s.running ? "" : "success"}" onclick="event.stopPropagation(); togglePowerFromCard(this, ${id}, ${s.running})">${power}</button>
-          <button class="mini-btn danger" onclick="event.stopPropagation(); deleteServerFromCard(this, ${id})">✕ Delete</button>
+          <button class="mini-btn danger" onclick="event.stopPropagation(); deleteServerFromCard(this, ${id})">Delete</button>
         </div>
       </div>`;
+}
+
+function updateFilterCounts(queried) {
+  const online = queried.filter(s => s.running).length;
+  const set = (id, value) => {
+    const node = document.getElementById(id);
+    if (node) node.textContent = String(value);
+  };
+  set("count-all", queried.length);
+  set("count-online", online);
+  set("count-offline", queried.length - online);
+}
+
+function paintServerList(servers) {
+  const el = document.getElementById("servers-list");
+  if (!el) return;
+  renderServerSummary(servers);
+  updateTitle(servers.filter(s => s.running).length);
+  const query = serverQuery.trim().toLowerCase();
+  const queried = servers.filter(s => !query || `${s.name} ${s.type} ${s.version} ${s.port}`.toLowerCase().includes(query));
+  updateFilterCounts(queried);
+  const filtered = sortServers(queried.filter(s => {
+    if (serverFilter === "online" && !s.running) return false;
+    if (serverFilter === "offline" && s.running) return false;
+    return true;
+  }));
+  const html = filtered.length
+    ? filtered.map(serverCardHtml).join("")
+    : `<div class="empty-card dashed">
+        <svg viewBox="0 0 16 16" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="12" height="4" rx="1"/><rect x="2" y="9" width="12" height="4" rx="1"/><circle cx="4.5" cy="5" r=".5" fill="currentColor" stroke="none"/><circle cx="4.5" cy="11" r=".5" fill="currentColor" stroke="none"/></svg>
+        <p>${servers.length ? "No servers match your search or filter." : "No servers yet."}</p>
+        ${servers.length ? "" : `<button class="btn primary small" data-perm="manage" onclick="switchTab('create')"><span>+</span> New Server</button>`}
+      </div>`;
+  if (html !== serversHtml) {
+    el.classList.toggle("settled", serversSettled);
+    el.innerHTML = html;
+    serversHtml = html;
+    pingedKey = "";
+    if (lastStats) paintLiveCards(lastStats);
+  }
+  serversSettled = true;
+  const running = filtered.filter(s => s.running);
+  const key = running.map(s => s.id).sort().join(",");
+  if (key !== pingedKey) {
+    pingedKey = key;
+    if (running.length) refreshServerPings(running);
+  }
+}
+
+// Search, sort and the status filter paint from the list already on screen.
+function repaintServers() {
+  if (!serversHtml && !knownServers.length) return;
+  paintServerList(knownServers);
 }
 
 async function loadServers() {
@@ -161,30 +271,9 @@ async function loadServers() {
   try {
     const res = await fetch("/api/servers");
     if (!res.ok) throw new Error("Failed to load servers");
-    const servers = await res.json();
-    renderServerSummary(servers);
-    knownServers = servers;
-    updateTitle(servers.filter(s => s.running).length);
-    const query = serverQuery.trim().toLowerCase();
-    const filtered = sortServers(servers.filter(s => {
-      if (serverFilter === "online" && !s.running) return false;
-      if (serverFilter === "offline" && s.running) return false;
-      return !query || `${s.name} ${s.type} ${s.version} ${s.port}`.toLowerCase().includes(query);
-    }));
-    const html = filtered.length
-      ? filtered.map(serverCardHtml).join("")
-      : `<div class="empty-card dashed">
-        <svg viewBox="0 0 16 16" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="12" height="4" rx="1"/><rect x="2" y="9" width="12" height="4" rx="1"/><circle cx="4.5" cy="5" r=".5" fill="currentColor" stroke="none"/><circle cx="4.5" cy="11" r=".5" fill="currentColor" stroke="none"/></svg>
-        <p>${servers.length ? "No servers match your search or filter." : "No servers yet."}</p>
-        <button class="btn primary small" onclick="switchTab('create')"><span>+</span> New Server</button>
-      </div>`;
-    if (html !== serversHtml) {
-      el.classList.toggle("settled", serversSettled);
-      el.innerHTML = html;
-      serversHtml = html;
-    }
-    serversSettled = true;
-    if (filtered.length) refreshServerPings(filtered);
+    knownServers = await res.json();
+    livePlayerTotal = null;
+    paintServerList(knownServers);
   } catch (e) {
     serversHtml = "";
     el.innerHTML = `<div class="empty">Error: ${escapeHtml(e.message)}</div>`;
@@ -203,7 +292,53 @@ function sparkPoints(values, max) {
   return values.map((value, i) => `${(offset + i * step).toFixed(1)},${(30 - Math.min(1, Math.max(0, value / (max || 1))) * 28).toFixed(1)}`).join(" ");
 }
 
+function paintMeter(bar, label, percent, text) {
+  if (!bar || !label) return;
+  const value = percent == null ? 0 : Math.max(0, Math.min(100, percent));
+  bar.style.width = percent == null ? "0" : `${value}%`;
+  bar.parentElement.classList.toggle("hot", percent != null && percent >= 90);
+  label.textContent = text;
+}
+
+function paintHost(host) {
+  const root = document.getElementById("fleet-load");
+  if (!root || !host) return;
+  root.classList.toggle("is-live", host.cpu != null || host.ram_percent != null);
+  paintMeter(root.querySelector('[data-host="cpu"]'), root.querySelector('[data-host-val="cpu"]'), host.cpu, host.cpu == null ? "—" : `${Math.round(host.cpu)}%`);
+  paintMeter(root.querySelector('[data-host="ram"]'), root.querySelector('[data-host-val="ram"]'), host.ram_percent, host.ram_percent == null ? "—" : `${Math.round(host.ram_percent)}%`);
+}
+
+function paintLiveCards(data) {
+  if (!data?.servers) return;
+  document.querySelectorAll(".card-live").forEach(card => {
+    const stat = data.servers[card.dataset.liveFor];
+    card.hidden = !stat;
+    if (!stat) return;
+    const limit = Number(card.dataset.ramLimit) || 2048;
+    const ramPct = limit ? ((stat.ram_mb ?? 0) / limit) * 100 : 0;
+    paintMeter(card.querySelector('[data-bar="cpu"]'), card.querySelector('[data-val="cpu"]'), stat.cpu, stat.cpu == null ? "-" : `${stat.cpu}%`);
+    paintMeter(card.querySelector('[data-bar="ram"]'), card.querySelector('[data-val="ram"]'), stat.ram_mb == null ? null : ramPct, stat.ram_mb == null ? "-" : formatRam(stat.ram_mb));
+    const server = knownServers.find(item => item.id === card.dataset.liveFor);
+    if (server && stat.players != null) server.players = stat.players;
+    const slot = card.parentElement?.querySelector("[data-slot='players']");
+    if (slot && stat.players != null) slot.textContent = String(stat.players);
+    const chip = card.parentElement?.querySelector(".badge.players");
+    if (chip && stat.players != null) chip.textContent = `${stat.players} playing`;
+  });
+  if (knownServers.length) {
+    livePlayerTotal = knownServers.reduce((sum, server) => sum + (server.running ? Number(server.players) || 0 : 0), 0);
+    const node = document.querySelector("[data-fleet='players']");
+    if (node && Number(node.dataset.countTo) !== livePlayerTotal) {
+      node.dataset.countTo = String(livePlayerTotal);
+      animateCounts(node);
+    }
+  }
+  updateDetailStats(data.servers[currentServerId]);
+  paintHost(data.host);
+}
+
 function applyStats(data) {
+  lastStats = data;
   Object.entries(data.servers).forEach(([sid, stat]) => {
     const history = statHistory[sid] || (statHistory[sid] = { cpu: [], ram: [] });
     history.cpu.push(stat.cpu ?? 0);
@@ -211,17 +346,7 @@ function applyStats(data) {
     if (history.cpu.length > STAT_POINTS) { history.cpu.shift(); history.ram.shift(); }
   });
   Object.keys(statHistory).forEach(sid => { if (!data.servers[sid]) delete statHistory[sid]; });
-  document.querySelectorAll(".card-live").forEach(card => {
-    const stat = data.servers[card.dataset.liveFor];
-    card.hidden = !stat;
-    if (!stat) return;
-    const limit = Number(card.dataset.ramLimit) || 2048;
-    card.querySelector('[data-bar="cpu"]').style.width = `${Math.min(100, stat.cpu ?? 0)}%`;
-    card.querySelector('[data-val="cpu"]').textContent = stat.cpu == null ? "-" : `${stat.cpu}%`;
-    card.querySelector('[data-bar="ram"]').style.width = `${Math.min(100, ((stat.ram_mb ?? 0) / limit) * 100)}%`;
-    card.querySelector('[data-val="ram"]').textContent = stat.ram_mb == null ? "-" : `${formatRam(stat.ram_mb)}`;
-  });
-  updateDetailStats(data.servers[currentServerId]);
+  paintLiveCards(data);
 }
 
 function updateDetailStats(stat) {
@@ -229,8 +354,13 @@ function updateDetailStats(stat) {
   if (!panel) return;
   panel.hidden = !stat;
   if (!stat) return;
-  document.getElementById("stat-cpu").textContent = stat.cpu == null ? "-" : `${stat.cpu}%`;
-  document.getElementById("stat-ram").textContent = stat.ram_mb == null ? "-" : `${formatRam(stat.ram_mb)} / ${formatRam(currentServerRam)}`;
+  const cpu = document.getElementById("stat-cpu");
+  const ram = document.getElementById("stat-ram");
+  const ramPct = currentServerRam ? ((stat.ram_mb ?? 0) / currentServerRam) * 100 : 0;
+  cpu.textContent = stat.cpu == null ? "-" : `${stat.cpu}%`;
+  cpu.classList.toggle("warn-text", (stat.cpu ?? 0) >= 90);
+  ram.textContent = stat.ram_mb == null ? "-" : `${formatRam(stat.ram_mb)} / ${formatRam(currentServerRam)}`;
+  ram.classList.toggle("warn-text", stat.ram_mb != null && ramPct >= 90);
   document.getElementById("stat-uptime").textContent = formatUptime(stat.uptime);
   const history = statHistory[currentServerId] || { cpu: [], ram: [] };
   document.getElementById("spark-cpu").setAttribute("points", sparkPoints(history.cpu, 100));
@@ -251,8 +381,14 @@ async function refreshServerPings(servers) {
     try {
       const data = await (await fetch(`/api/server/${encodeURIComponent(server.id)}/ping`)).json();
       document.querySelectorAll(`[data-ping-for="${CSS.escape(server.id)}"]`).forEach(node => {
-        node.textContent = data.ping == null ? "Offline" : `${data.ping} ms`;
-        node.classList.toggle("ping-good", data.ping != null && data.ping < 100);
+        node.classList.remove("ping-good", "ping-mid", "ping-bad", "is-idle");
+        if (data.ping == null) {
+          node.textContent = "no reply";
+          node.classList.add("ping-bad");
+          return;
+        }
+        node.textContent = `${data.ping} ms`;
+        node.classList.add(data.ping < 80 ? "ping-good" : data.ping < 180 ? "ping-mid" : "ping-bad");
       });
     } catch {}
   }));
@@ -302,7 +438,7 @@ async function deleteServerFromCard(button, id) {
   } catch (error) {
     showToast(error.message, "error");
     button.disabled = false;
-    button.textContent = "✕ Delete";
+    button.textContent = "Delete";
   } finally {
     loadServers();
   }

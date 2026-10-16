@@ -318,7 +318,7 @@ function relativeTime(iso) {
 // Press ripple and cursor spotlight. Pure decoration, skipped when motion is off.
 const RIPPLE_SELECTOR = ".btn, .mini-btn, .nav-btn, .dtab, .filter-pill, .ram-preset, .dim-tab, .console-tool, .icon-btn";
 
-const SPOTLIGHT_SELECTOR = ".server-card, .summary-pill, .panel-card, .settings-card, .info-card, .featured-item, .result-card, .form-section, .create-commit";
+const SPOTLIGHT_SELECTOR = ".server-card, .summary-pill, .hud-gauge, .panel-card, .settings-card, .info-card, .featured-item, .result-card, .form-section, .create-commit";
 
 let spotlightFrame = null;
 

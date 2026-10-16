@@ -71,9 +71,9 @@
           <input type="search" id="server-search" class="toolbar-search" placeholder="Search servers..." aria-label="Search servers" autocomplete="off" />
           <select id="server-sort" class="toolbar-select" aria-label="Sort servers"><option value="created">Newest first</option><option value="name">Name</option><option value="status">Running first</option><option value="port">Port</option></select>
           <div class="filter-group" id="server-filter" role="group" aria-label="Filter servers">
-            <button type="button" class="filter-pill active" data-filter="all">All</button>
-            <button type="button" class="filter-pill" data-filter="online">Running</button>
-            <button type="button" class="filter-pill" data-filter="offline">Stopped</button>
+            <button type="button" class="filter-pill active" data-filter="all">All <span class="filter-count" id="count-all">0</span></button>
+            <button type="button" class="filter-pill" data-filter="online">Running <span class="filter-count" id="count-online">0</span></button>
+            <button type="button" class="filter-pill" data-filter="offline">Stopped <span class="filter-count" id="count-offline">0</span></button>
           </div>
         </div>
 
