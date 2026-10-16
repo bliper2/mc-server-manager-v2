@@ -9,6 +9,12 @@ async function loadManagerUpdate() {
     document.getElementById("update-auto-install").checked = data.auto_install;
     document.getElementById("update-channel").value = data.channel;
     document.getElementById("update-auto-install").disabled = data.channel !== "releases";
+    const checked = document.getElementById("update-last-check");
+    if (checked) {
+      const when = data.last_check ? `Last checked ${new Date(data.last_check).toLocaleString()}.` : "No check yet.";
+      checked.textContent = data.last_auto_error ? `${when} Automatic install failed: ${data.last_auto_error}` : when;
+      checked.classList.toggle("hint-warn", Boolean(data.last_auto_error));
+    }
     document.getElementById("update-installed").textContent = data.installed
       ? `${data.installed.slice(0, 7)} from ${data.repo}`
       : `Unknown version of ${data.repo}`;
@@ -47,8 +53,8 @@ async function checkManagerUpdate() {
     try {
       const data = await requestJson("/api/manager/update/check", { method: "POST" });
       if (!data.ok) throw new Error(data.error || "Check failed");
-      renderUpdateLatest(data.latest, data.installed);
       showToast(data.latest.update_available ? "Update available" : "Already up to date", "success");
+      await loadManagerUpdate();
     } catch (error) {
       showToast(error.message, "error");
     }

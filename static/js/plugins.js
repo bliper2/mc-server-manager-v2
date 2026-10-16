@@ -167,17 +167,69 @@ async function deletePlugin(folder, name) {
 
 let lastUpdateItems = [];
 
+function paintAutoUpdate(data) {
+  const select = document.getElementById("auto-update-interval");
+  const hours = String(data.settings.interval_hours);
+  if (![...select.options].some(option => option.value === hours)) {
+    const extra = document.createElement("option");
+    extra.value = hours;
+    extra.textContent = `${hours} hours`;
+    select.appendChild(extra);
+  }
+  select.value = hours;
+  document.getElementById("auto-update-enabled").checked = data.settings.enabled;
+  document.getElementById("auto-update-install").checked = data.settings.install;
+  const report = data.report;
+  const lines = [];
+  lines.push(data.last_check ? `Last checked ${new Date(data.last_check).toLocaleString()}.` : "No successful check yet.");
+  if (report?.error) lines.push(report.error);
+  if (report?.installed?.length) lines.push(`Installed ${report.installed.join(", ")}. Restart the server to load them.`);
+  if (report?.waiting?.length) lines.push(`Waiting until the server stops: ${report.waiting.join(", ")}.`);
+  if (report?.failed?.length) lines.push(`Could not install ${report.failed.map(item => item.file).join(", ")}.`);
+  if (report && !report.error && !report.installed?.length && !report.waiting?.length && !report.failed?.length) {
+    if (report.found) {
+      const names = report.available?.length ? ` (${report.available.join(", ")})` : "";
+      lines.push(`${report.found} update${report.found === 1 ? "" : "s"} found${names}.`);
+      if (!data.settings.install) lines.push("Automatic install is off.");
+    } else {
+      lines.push("No updates found.");
+    }
+  }
+  const status = document.getElementById("update-check-last");
+  status.textContent = lines.join(" ");
+  status.classList.toggle("hint-warn", Boolean(report?.error || report?.failed?.length));
+  const badge = document.getElementById("update-check-badge");
+  if (!badge) return;
+  if (!report) {
+    badge.textContent = "Not checked";
+    badge.className = "badge type";
+  } else if (report.error) {
+    badge.textContent = "Check failed";
+    badge.className = "badge offline";
+  } else if (report.waiting?.length) {
+    badge.textContent = `${report.waiting.length} waiting`;
+    badge.className = "badge type";
+  } else if (report.failed?.length) {
+    badge.textContent = "Install failed";
+    badge.className = "badge offline";
+  } else if (report.installed?.length) {
+    badge.textContent = "Installed";
+    badge.className = "badge online";
+  } else if (report.found) {
+    badge.textContent = `${report.found} update${report.found === 1 ? "" : "s"} found`;
+    badge.className = "badge type";
+  } else {
+    badge.textContent = "Up to date";
+    badge.className = "badge online";
+  }
+}
+
 async function loadAutoUpdate() {
   if (!currentServerId) return;
   try {
     const data = await requestJson(`/api/server/${currentServerId}/auto-update`);
     if (!data.ok) return;
-    document.getElementById("auto-update-enabled").checked = data.settings.enabled;
-    document.getElementById("auto-update-interval").value = data.settings.interval_hours;
-    document.getElementById("auto-update-install").checked = data.settings.install;
-    document.getElementById("update-check-last").textContent = data.last_check
-      ? `Last checked: ${new Date(data.last_check).toLocaleString()}`
-      : "No check run yet.";
+    paintAutoUpdate(data);
   } catch { /* server may have just been deleted mid-refresh */ }
 }
 
@@ -188,12 +240,15 @@ async function saveAutoUpdate() {
     interval_hours: Number(document.getElementById("auto-update-interval").value) || 12,
     install: document.getElementById("auto-update-install").checked
   };
-  const data = await requestJson(`/api/server/${currentServerId}/auto-update`, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
-  });
-  if (data.ok) {
+  try {
+    const data = await requestJson(`/api/server/${currentServerId}/auto-update`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
+    });
+    if (!data.ok) throw new Error(data.error || "Could not save update settings");
     showToast(payload.enabled ? "Update checks scheduled" : "Automatic update checks disabled", "success");
     loadAutoUpdate();
+  } catch (error) {
+    showToast(error.message, "error");
   }
 }
 

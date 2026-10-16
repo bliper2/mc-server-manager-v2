@@ -33,7 +33,7 @@ UPDATE_REQUIRED = ("app.py", "templates/index.html", "manager/__init__.py")
 CHANNELS = ("releases", "main")
 
 def load_update_state() -> dict:
-    defaults = {"installed": None, "auto_check": True, "auto_install": False, "channel": "releases", "last_check": None, "latest": None}
+    defaults = {"installed": None, "auto_check": True, "auto_install": False, "channel": "releases", "last_check": None, "latest": None, "last_auto_error": None}
     if not UPDATE_STATE_FILE.exists():
         return defaults
     try:
@@ -204,6 +204,7 @@ def api_manager_update():
         "auto_install": state["auto_install"],
         "channel": state["channel"],
         "last_check": state["last_check"],
+        "last_auto_error": state.get("last_auto_error"),
         "latest": state["latest"],
         "repo": UPDATE_REPO,
         "branch": UPDATE_BRANCH,
@@ -283,6 +284,7 @@ def check_manager_update():
         return
     state["latest"] = latest
     state["last_check"] = datetime.now().isoformat(timespec="seconds")
+    state["last_auto_error"] = None
     save_update_state(state)
     # Unattended installs only ever follow published releases; a bad commit on main must not reach the panel by itself.
     if latest.get("update_available") and state.get("auto_install") and state.get("channel") == "releases" and latest.get("release"):
@@ -292,4 +294,7 @@ def check_manager_update():
             notify("manager_update", f"Automatically installed **{result['ref']}**. The manager restarts when no server is running.")
             print(f"Manager updated to {result['short']}; it restarts once no server is running")
         except (requests.RequestException, RuntimeError, zipfile.BadZipFile, OSError) as exc:
+            failed = load_update_state()
+            failed["last_auto_error"] = str(exc)[:300]
+            save_update_state(failed)
             print("Manager auto-update failed:", exc)

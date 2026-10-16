@@ -271,7 +271,7 @@ class PluginsAndFiles(AppTestCase):
 class Watchers(AppTestCase):
     def test_new_events_are_known_to_notifications(self):
         from manager import notify
-        for event in ("resource_alert", "server_hung", "disk_low"):
+        for event in ("resource_alert", "server_hung", "disk_low", "plugin_update"):
             self.assertIn(event, notify.EVENTS)
             self.assertIn(event, notify.EVENT_LABELS)
 

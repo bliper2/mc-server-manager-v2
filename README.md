@@ -114,9 +114,12 @@ version.
 
 Update one jar or all of them at once, or set a schedule (6 hours to 3 days) and optionally let it
 install updates on its own. Jars that are not on Modrinth are listed as unmatched and left alone.
+Automatic installs wait until the server is stopped, then apply the version already found. The card
+shows what was installed, what is still waiting, and what failed. A check that cannot reach Modrinth
+tries again in 15 minutes instead of every minute.
 
-Updating replaces a file on disk, so it works best with the server stopped — Windows will not let a
-running server's jar be overwritten, and the manager reports that rather than failing quietly.
+Updating replaces a file on disk. A manual update reports a locked file instead of failing quietly.
+Automatic installs do not write while the server is running; they finish after it stops.
 
 ### The right loader
 
@@ -170,7 +173,8 @@ before that happens.
   newest of those (the last five are kept) and restarts too.
 - **Check automatically** looks at GitHub every 10 minutes while the manager runs (a few requests an hour, well under GitHub's anonymous limit).
 - **Install automatically** is off by default and only ever installs published releases, never a raw commit.
-  After an automatic install the manager restarts itself the next time no server is running.
+  After an automatic install the manager restarts itself the next time no server is running. The Updates
+  card shows when the last check ran, and an automatic install that fails shows the reason there.
 - Updating needs the owner account.
 
 The self-restart works when the manager was started with `start.bat`, `start-shared.bat` or `python app.py`.
@@ -233,7 +237,7 @@ A server keeps its own copy of the logo or banner it uses (`manager_logo.*` in i
 
 Settings > Discord notifications (owner only). Paste a channel webhook (Channel settings > Integrations >
 Webhooks) and choose what to hear about: server start, stop, crash and automatic restart, backups, manager
-updates, lockouts and failed sign-ins, staff changes, resource, hang and disk alerts, and optionally players joining or leaving. The URL is stored
+updates, plugin and mod updates, lockouts and failed sign-ins, staff changes, resource, hang and disk alerts, and optionally players joining or leaving. The URL is stored
 in `manager_settings.json`, is never sent back to the browser, and is not overwritten by updates.
 
 ### Discord status board (per server)

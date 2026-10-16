@@ -253,6 +253,23 @@ class Updates(AppTestCase):
                 updater.check_manager_update()
             self.assertEqual(apply.called, expect_install, (channel, release))
 
+    def test_failed_automatic_install_is_remembered(self):
+        base = {"auto_check": True, "auto_install": True, "channel": "releases", "last_check": None, "installed": "old", "latest": None, "last_auto_error": None}
+        latest = {"update_available": True, "release": {"tag": "v1"}, "sha": "x", "short": "x", "ref": "v1"}
+        saved = {}
+
+        def capture(state):
+            saved.clear()
+            saved.update(state)
+
+        with mock.patch.object(updater, "load_update_state", return_value=dict(base)), \
+                mock.patch.object(updater, "save_update_state", side_effect=capture), \
+                mock.patch.object(updater, "fetch_update_status", return_value=latest), \
+                mock.patch.object(updater, "apply_manager_update", side_effect=RuntimeError("archive refused")), \
+                mock.patch.object(updater, "notify"):
+            updater.check_manager_update()
+        self.assertIn("archive refused", saved.get("last_auto_error") or "")
+
     def test_automatic_checks_look_at_github_every_ten_minutes(self):
         from datetime import datetime, timedelta
         self.assertEqual(updater.UPDATE_CHECK_INTERVAL, 600)

@@ -24,6 +24,9 @@ from .updater import check_manager_update
 from .util import SERVER_ID_PATTERN
 
 SCHEDULER_TICK = 15
+UPDATE_RETRY_SECONDS = 15 * 60
+UPDATE_PENDING_CAP = 40
+_FILE_LOCKED = "Could not replace the file (is the server running?)"
 CPU_ALERT_PERCENT = 90
 RAM_ALERT_PERCENT = 92
 ALERT_SAMPLES = 8          # consecutive 15 s samples, i.e. two minutes of sustained load
@@ -216,6 +219,235 @@ def scheduler_loop():
             print("Scheduler error:", exc)
 
 
+def _update_due(meta, cfg, now) -> bool:
+    retry_at = meta.get("next_update_check_at")
+    if isinstance(retry_at, (int, float)) and not isinstance(retry_at, bool) and retry_at > now:
+        return False
+    try:
+        last = float(meta.get("last_update_check_at") or 0)
+    except (TypeError, ValueError):
+        last = 0
+    return now >= last + cfg["interval_hours"] * 3600
+
+
+def _pending_ok(item) -> bool:
+    return isinstance(item, dict) and item.get("folder") in ("plugins", "mods") and bool(item.get("file")) and bool(item.get("download_url"))
+
+
+def _identity(item) -> str:
+    return f"{item.get('folder')}/{item.get('file')}@{item.get('latest_version') or ''}"
+
+
+def _label(item) -> str:
+    name = str(item.get("name") or item.get("file") or "plugin").strip()
+    version = str(item.get("latest_version") or "").strip()
+    return f"{name} {version}".strip() if version else name
+
+
+def _slim(item) -> dict:
+    return {
+        "folder": item.get("folder"),
+        "file": item.get("file"),
+        "download_url": item.get("download_url"),
+        "download_filename": item.get("download_filename"),
+        "name": item.get("name") or item.get("file"),
+        "latest_version": item.get("latest_version"),
+    }
+
+
+def _join(names) -> str:
+    shown = [str(name) for name in list(names)[:8]]
+    extra = len(list(names)) - len(shown)
+    text = ", ".join(shown)
+    if extra > 0:
+        text += f" and {extra} more"
+    return text
+
+
+def _report(found, installed, waiting, failed, error, available=None) -> dict:
+    report = {
+        "at": datetime.now().isoformat(timespec="seconds"),
+        "found": found,
+        "installed": installed,
+        "waiting": waiting,
+        "failed": failed[:12],
+        "error": error,
+    }
+    if available:
+        report["available"] = list(available)[:12]
+    return report
+
+
+def _waiting_files(items) -> set:
+    return {str(item.get("file")) for item in items if isinstance(item, dict)}
+
+
+def _detail(report) -> str:
+    parts = []
+    if report.get("error"):
+        parts.append(report["error"])
+    if report.get("installed"):
+        parts.append(f"Installed {_join(report['installed'])}. Restart the server to load them.")
+    if report.get("waiting"):
+        parts.append(f"{_join(report['waiting'])} will install after the server stops.")
+    held = set(report.get("waiting_files") or [])
+    real = [item["file"] for item in report.get("failed") or [] if item.get("file") not in held and _FILE_LOCKED not in str(item.get("detail"))]
+    if real:
+        parts.append(f"Could not install {_join(real)}.")
+    if not parts and report.get("available"):
+        count = report.get("found") or len(report["available"])
+        word = "update" if count == 1 else "updates"
+        parts.append(f"{count} plugin {word} available ({_join(report['available'])}). Automatic install is off.")
+    return " ".join(parts)
+
+
+def _signature(installed_ids, waiting_items, failed, error, found_items) -> str:
+    parts = []
+    if error:
+        parts.append("error")
+    if installed_ids:
+        parts.append("in:" + "|".join(sorted(installed_ids)))
+    if waiting_items:
+        parts.append("wait:" + "|".join(sorted(_identity(item) for item in waiting_items)))
+    held = _waiting_files(waiting_items)
+    real = [item["file"] for item in failed if item.get("file") not in held and _FILE_LOCKED not in str(item.get("detail"))]
+    if real:
+        parts.append("fail:" + "|".join(sorted(real)))
+    if found_items:
+        parts.append("found:" + "|".join(sorted(_identity(item) for item in found_items)))
+    return ";".join(parts)
+
+
+def _publish(sid, meta, report, signature):
+    stored = dict(report)
+    stored.pop("waiting_files", None)
+    meta["last_update_report"] = stored
+    detail = _detail(report)
+    if not signature or not detail:
+        meta["update_notified"] = ""
+        return
+    if meta.get("update_notified") == signature:
+        return
+    meta["update_notified"] = signature
+    notify("plugin_update", detail, sid)
+
+
+def _apply_queued(sid, pending):
+    """Install queued downloads. A locked file stays queued for two more tries; anything else is dropped."""
+    installed, installed_ids, failed, still = [], [], [], []
+    for item in pending:
+        if not _pending_ok(item):
+            continue
+        ok, message = apply_plugin_update(sid, item["folder"], item["file"], item["download_url"], item.get("download_filename"))
+        if ok:
+            installed.append(_label(item))
+            installed_ids.append(_identity(item))
+            continue
+        message = str(message)
+        if _FILE_LOCKED in message:
+            try:
+                tries = int(item.get("tries") or 0) + 1
+            except (TypeError, ValueError):
+                tries = 1
+            if tries < 3:
+                retry = _slim(item)
+                retry["tries"] = tries
+                still.append(retry)
+            else:
+                failed.append({"file": str(item.get("file"))[:120], "detail": "The file stayed locked after the server stopped."})
+        else:
+            failed.append({"file": str(item.get("file"))[:120], "detail": message[:240]})
+    return installed, installed_ids, failed, still
+
+
+def _unique(items):
+    seen = set()
+    out = []
+    for item in items:
+        if item in seen:
+            continue
+        seen.add(item)
+        out.append(item)
+    return out
+
+
+def maintain_plugin_updates(sid: str, meta: dict, now: float) -> bool:
+    """Check Modrinth on the server's schedule. Installs wait until the server is stopped.
+
+    Returns True when `meta` changed and should be saved.
+    """
+    cfg = auto_update_settings(meta)
+    dirty = False
+    pending = meta.get("plugin_update_pending")
+    if not isinstance(pending, list):
+        pending = []
+    if pending and not cfg["install"]:
+        meta["plugin_update_pending"] = []
+        pending = []
+        dirty = True
+        previous = meta.get("last_update_report")
+        if isinstance(previous, dict) and previous.get("waiting"):
+            cleared = dict(previous)
+            cleared["waiting"] = []
+            meta["last_update_report"] = cleared
+
+    installed, installed_ids, failed = [], [], []
+    if cfg["install"] and pending and not is_running(sid):
+        installed, installed_ids, failed, pending = _apply_queued(sid, pending)
+        meta["plugin_update_pending"] = pending
+        dirty = True
+
+    if not cfg["enabled"] or not _update_due(meta, cfg, now):
+        if installed or failed or (dirty and pending):
+            waiting = [_label(item) for item in pending]
+            report = _report(len(installed) + len(waiting) + len(failed), installed, waiting, failed, None)
+            report["waiting_files"] = _waiting_files(pending)
+            _publish(sid, meta, report, _signature(installed_ids, pending, failed, None, None))
+            dirty = True
+        return dirty
+
+    try:
+        items = scan_plugin_updates(sid)
+    except Exception as exc:
+        print(f"Update check failed for {sid}:", exc)
+        meta["next_update_check_at"] = now + UPDATE_RETRY_SECONDS
+        waiting = [_label(item) for item in pending]
+        report = _report(0, installed, waiting, failed, "Could not reach Modrinth. Trying again in 15 minutes.")
+        report["waiting_files"] = _waiting_files(pending)
+        _publish(sid, meta, report, _signature(installed_ids, pending, failed, True, None))
+        return True
+
+    meta["last_update_check_at"] = now
+    meta["last_update_check"] = datetime.now().isoformat(timespec="seconds")
+    meta.pop("next_update_check_at", None)
+    updates = [item for item in items if item.get("update_available") and item.get("download_url") and item.get("folder") in ("plugins", "mods")]
+    available = None
+    if cfg["install"]:
+        queued = [_slim(item) for item in updates[:UPDATE_PENDING_CAP]]
+        if is_running(sid):
+            pending = queued
+        else:
+            more_installed, more_ids, more_failed, pending = _apply_queued(sid, queued)
+            installed.extend(more_installed)
+            installed_ids.extend(more_ids)
+            failed.extend(more_failed)
+        meta["plugin_update_pending"] = pending
+    else:
+        pending = []
+        meta["plugin_update_pending"] = []
+        available = [_label(item) for item in updates[:12]]
+
+    installed = _unique(installed)
+    installed_ids = _unique(installed_ids)
+    failed = list({item["file"]: item for item in failed}.values())
+    waiting = [_label(item) for item in pending]
+    report = _report(len(updates), installed, waiting, failed, None, available)
+    report["waiting_files"] = _waiting_files(pending)
+    found_items = updates if available else None
+    _publish(sid, meta, report, _signature(installed_ids, pending if cfg["install"] else [], failed, None, found_items))
+    return True
+
+
 def run_scheduled_maintenance():
     now = time.time()
     check_manager_update()
@@ -242,21 +474,8 @@ def run_scheduled_maintenance():
                     meta["last_auto_backup"] = datetime.now().isoformat(timespec="seconds")
                     dirty = True
 
-        update_cfg = auto_update_settings(meta)
-        if update_cfg["enabled"]:
-            due_at = meta.get("last_update_check_at", 0) + update_cfg["interval_hours"] * 3600
-            if now >= due_at:
-                try:
-                    items = scan_plugin_updates(sid)
-                    meta["last_update_check_at"] = now
-                    meta["last_update_check"] = datetime.now().isoformat(timespec="seconds")
-                    dirty = True
-                    if update_cfg["install"]:
-                        for item in items:
-                            if item.get("update_available") and item.get("download_url"):
-                                apply_plugin_update(sid, item["folder"], item["file"], item["download_url"], item.get("download_filename"))
-                except Exception as exc:
-                    print(f"Update check failed for {sid}:", exc)
+        if maintain_plugin_updates(sid, meta, now):
+            dirty = True
 
         if dirty:
             save_meta(sid, meta)

@@ -7,7 +7,7 @@ from werkzeug.utils import secure_filename
 
 from . import app
 from .auth import current_account
-from .backups import auto_update_settings
+from .backups import auto_update_settings, public_update_report
 from .compat import bytes_problem, folder_for, folder_problems, loaders_for
 from .jarinfo import plugin_info
 from .javatools import java_for
@@ -427,7 +427,12 @@ def api_auto_update(sid):
         }
         save_meta(sid, meta)
         return jsonify({"ok": True, "settings": meta["auto_update"]})
-    return jsonify({"ok": True, "settings": auto_update_settings(meta), "last_check": meta.get("last_update_check")})
+    return jsonify({
+        "ok": True,
+        "settings": auto_update_settings(meta),
+        "last_check": meta.get("last_update_check"),
+        "report": public_update_report(meta),
+    })
 
 @app.route("/api/server/<sid>/updates/check")
 def api_updates_check(sid):

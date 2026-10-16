@@ -149,6 +149,38 @@ def auto_update_settings(meta: dict) -> dict:
         "install": bool(stored.get("install"))
     }
 
+def public_update_report(meta: dict):
+    """The last automatic plugin update, without download URLs."""
+    report = meta.get("last_update_report")
+    if not isinstance(report, dict):
+        return None
+
+    def strings(key):
+        values = report.get(key)
+        if not isinstance(values, list):
+            return []
+        return [str(item)[:80] for item in values if isinstance(item, str) and str(item).strip()][:12]
+
+    failed = []
+    for item in report.get("failed") or []:
+        if isinstance(item, dict) and item.get("file"):
+            failed.append({"file": str(item["file"])[:120], "detail": str(item.get("detail") or "")[:240]})
+        if len(failed) >= 12:
+            break
+    try:
+        found = int(report.get("found") or 0)
+    except (TypeError, ValueError):
+        found = 0
+    return {
+        "at": report.get("at") if isinstance(report.get("at"), str) else None,
+        "found": max(0, min(found, 500)),
+        "installed": strings("installed"),
+        "waiting": strings("waiting"),
+        "available": strings("available"),
+        "failed": failed,
+        "error": str(report["error"])[:240] if report.get("error") else None,
+    }
+
 def run_restore(server_id: str, archive_name: str, safety: bool, keep: int):
     root = get_server_path(server_id)
     archive = backup_dir(server_id) / archive_name

@@ -479,6 +479,7 @@
               <div><strong>Update channel</strong><small>Releases are tested versions. Latest code follows every change on GitHub. Automatic installs only ever use releases.</small></div>
               <select id="update-channel" onchange="saveUpdateSettings()"><option value="releases">Releases (recommended)</option><option value="main">Latest code</option></select>
             </div>
+            <p class="hint" id="update-last-check">No check yet.</p>
             <div id="update-detail" class="update-detail" hidden></div>
             <div class="backup-controls">
               <button class="btn primary small" id="btn-update-apply" onclick="applyManagerUpdate()" hidden>Install update</button>
@@ -861,7 +862,7 @@
           <div class="panel-card component-actions"><h3>Component controls</h3><p class="hint">Reload plugin classes without a full restart, or restart the server to apply mod changes.</p><button class="btn success small" onclick="reloadComponents()">Reload plugins</button><button class="btn warning small" onclick="restartSelected()">Restart server</button></div>
           <div class="panel-card update-checker">
             <div class="wiki-heading"><div><span class="eyebrow">Modrinth</span><h2>Plugin & mod updates</h2></div><span id="update-check-badge" class="badge type">Not checked</span></div>
-            <p class="hint">Matches installed jars to Modrinth by file hash, then compares against the newest build for this Minecraft version.</p>
+            <p class="hint">Matches installed jars to Modrinth by file hash, then compares against the newest build for this Minecraft version. Automatic installs wait until the server is stopped.</p>
             <div class="backup-controls">
               <label class="backup-option"><input type="checkbox" id="auto-update-enabled" onchange="saveAutoUpdate()" /><span>Auto-check on a schedule</span></label>
               <label class="backup-option"><span>Every</span><select id="auto-update-interval" onchange="saveAutoUpdate()"><option value="6">6 hours</option><option value="12">12 hours</option><option value="24">24 hours</option><option value="72">3 days</option></select></label>
