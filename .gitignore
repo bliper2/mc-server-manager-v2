@@ -33,3 +33,6 @@ manager.log*
 *.key
 secrets*.json
 *.tmp
+
+lan-run.log
+lan-run.err

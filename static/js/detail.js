@@ -422,11 +422,11 @@ async function loadPlayers() {
   document.getElementById("wl-list").innerHTML = fmt(data.whitelist, "whitelist_remove", "Remove");
   document.getElementById("ban-list").innerHTML = fmt(data.banned, "pardon", "Pardon");
   loadPlaytime();
+  if (document.querySelector('.players-main .seg-btn.active')?.dataset.pane === "pranks") loadPranks();
 }
 
 function playerActionFor(action, name) {
-  document.getElementById("player-name").value = name;
-  playerAction(action);
+  playerAction(action, [name]);
 }
 
 async function loadPlaytime() {
@@ -484,55 +484,6 @@ async function cloneServer(button) {
 
 function copyAddress() {
   copyText(bestAddress());
-}
-
-function renderActivePlayers(players) {
-  const list = document.getElementById("active-player-list");
-  const count = document.getElementById("active-player-count");
-  if (!list || !count) return;
-  count.textContent = `${players.length} online`;
-  count.className = `badge ${players.length ? "online" : "offline"}`;
-  window.mcScene?.setServerState({ players: players.length });
-  list.innerHTML = players.length
-    ? players.map(name => `<button class="active-player" onclick="selectActivePlayer(${jsArg(name)})"><span class="status-dot online"></span><strong>${escapeHtml(name)}</strong><span>Use</span></button>`).join("")
-    : '<div class="empty">No players online</div>';
-}
-
-function selectActivePlayer(name) {
-  const input = document.getElementById("player-name");
-  if (input) {
-    input.value = name;
-    input.focus();
-  }
-}
-
-async function playerAction(action) {
-  const player = document.getElementById("player-name").value.trim();
-  if (!player && !["whitelist_on","whitelist_off"].includes(action)) {
-    showToast("Please enter a player name first", "warning");
-    return;
-  }
-  const data = await (await fetch(`/api/server/${currentServerId}/player-action`, {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action, player })
-  })).json();
-  
-  if (data.ok) {
-    showToast(`Executed: ${data.command}`, "success");
-    document.getElementById("player-name").value = "";
-    setTimeout(loadPlayers, 1500);
-  } else {
-    showToast(data.message || data.error, "error");
-  }
-}
-
-async function runTrollAction() {
-  const player = document.getElementById("player-name").value.trim();
-  const action = document.getElementById("troll-action").value;
-  const value = document.getElementById("troll-value").value.trim();
-  if (!player) { showToast("Select or enter a player first", "warning"); return; }
-  const data = await (await fetch(`/api/server/${currentServerId}/player-action`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: `troll_${action}`, player, value }) })).json();
-  showToast(data.ok ? "Prank command sent" : (data.error || data.message || "Prank failed"), data.ok ? "success" : "error");
 }
 
 async function reloadComponents() {

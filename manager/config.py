@@ -3,11 +3,14 @@
 import os
 from pathlib import Path
 
-VERSION = "2.14.0"
+VERSION = "2.15.0"
 DEV_MODE = os.environ.get("MC_MANAGER_DEV", "1") == "1"
 # Exit code that tells the supervisor (app.py or the Werkzeug reloader) to start the manager again.
 RESTART_EXIT_CODE = 3
 PORT = int(os.environ.get("MC_MANAGER_PORT", "5000"))
+# 127.0.0.1 keeps the panel on this PC. start-lan.bat sets 0.0.0.0 so a phone on the same network can reach it.
+HOST = os.environ.get("MC_MANAGER_HOST", "127.0.0.1")
+LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1")
 OWNER_WATERMARK = "MC-SERVER-MANAGER / Mrkraps aka orgeco"
 
 # BASE_DIR holds the code, templates and static files. DATA_DIR holds everything the manager writes

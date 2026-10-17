@@ -61,7 +61,7 @@ function can(permission) {
 const OWNER_WATERMARK = "MC-SERVER-MANAGER / Mrkraps aka orgeco";
 
 const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-const defaultSettings = { theme: "control", font: "dm", accent: "lime", density: "comfortable", motion: !prefersReducedMotion, confirmActions: true, autoRefresh: true, refreshInterval: "30", autoPing: true, pingInterval: "5", consoleAutoRefresh: true, backdrop3d: true };
+const defaultSettings = { theme: "control", font: "geist", accent: "emerald", density: "comfortable", motion: !prefersReducedMotion, confirmActions: true, autoRefresh: true, refreshInterval: "30", autoPing: true, pingInterval: "5", consoleAutoRefresh: true, backdrop3d: false };
 
 function getSettings() {
   try { return { ...defaultSettings, ...JSON.parse(localStorage.getItem("mc-manager-settings") || "{}") }; }
@@ -244,13 +244,13 @@ async function requestJson(url, options = {}) {
 }
 
 function rememberView(name) {
-  try { sessionStorage.setItem("mc-manager-view", JSON.stringify({ tab: name, server: name === "detail" ? currentServerId : null })); } catch {}
+  try { localStorage.setItem("mc-manager-view", JSON.stringify({ tab: name, server: name === "detail" ? currentServerId : null })); } catch {}
 }
 
 // After a reload (new version, F5) put the user back where they were.
 function restoreView() {
   let view = null;
-  try { view = JSON.parse(sessionStorage.getItem("mc-manager-view") || "null"); } catch {}
+  try { view = JSON.parse(localStorage.getItem("mc-manager-view") || "null"); } catch {}
   if (!view || view.tab === "servers") return;
   const target = document.getElementById(`tab-${view.tab}`);
   if (!target || (target.hasAttribute("data-owner-only") && !IS_OWNER)) return;

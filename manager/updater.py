@@ -12,9 +12,9 @@ import requests
 from flask import jsonify, request
 
 from . import app
-from .auth import require_admin, require_owner
-from .config import BACKUPS_DIR, BASE_DIR, DATA_DIR, HEADERS, SERVERS_DIR
-from .lifecycle import supervised
+from .auth import current_account, require_admin, require_owner
+from .config import BACKUPS_DIR, BASE_DIR, DATA_DIR, DEV_MODE, HEADERS, SERVERS_DIR
+from .lifecycle import exit_for_restart, running_server_ids, stop_for_restart, supervised
 from .notify import notify
 from .state import restart_flags
 from .store import is_running, write_json_atomic
@@ -128,7 +128,9 @@ def snapshot_manager_files(paths) -> Path:
         stale.unlink(missing_ok=True)
     return archive
 
-def apply_manager_update() -> dict:
+def apply_manager_update(stop_by: str = None) -> dict:
+    """Downloads and checks the archive first, then (when stop_by is set) stops servers safely, then swaps the files in
+    as close together as possible so a file watcher sees one change, not a trickle."""
     state = load_update_state()
     ref, _ = resolve_target(state)
     latest = github_json(f"/repos/{UPDATE_REPO}/commits/{ref}")
@@ -155,22 +157,36 @@ def apply_manager_update() -> dict:
             raise RuntimeError(f"Archive is missing {', '.join(missing)}; refusing to install it")
 
         snapshot = snapshot_manager_files(list(incoming))
-        written = []
+        staged = []
         for relative, member in sorted(incoming.items()):
             destination = BASE_DIR.joinpath(*relative.split("/"))
-            destination.parent.mkdir(parents=True, exist_ok=True)
             payload = bundle.read(member)
             if destination.exists() and destination.read_bytes() == payload:
                 continue
-            destination.write_bytes(payload)
+            staged.append((relative, destination, payload))
+
+    resumed = stop_for_restart(stop_by, "update") if stop_by and staged else []
+    written = []
+    pending_swap = []
+    try:
+        for relative, destination, payload in staged:
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            temp = destination.with_name(destination.name + ".mcm-new")
+            temp.write_bytes(payload)
+            pending_swap.append((relative, temp, destination))
+        for relative, temp, destination in pending_swap:
+            os.replace(temp, destination)
             written.append(relative)
+    finally:
+        for _, temp, _ in pending_swap:
+            temp.unlink(missing_ok=True)
 
     state.update({"installed": sha, "last_check": datetime.now().isoformat(timespec="seconds")})
     if isinstance(state.get("latest"), dict) and state["latest"].get("sha") == sha:
         state["latest"].update({"update_available": False, "behind": [], "count": 0})
     save_update_state(state)
     restart_flags["pending"] = True
-    return {"sha": sha, "short": sha[:7], "ref": ref, "files": written, "snapshot": snapshot.name}
+    return {"sha": sha, "short": sha[:7], "ref": ref, "files": written, "snapshot": snapshot.name, "resumes": len(resumed)}
 
 def restore_manager_snapshot() -> dict:
     archives = sorted(UPDATE_SNAPSHOTS.glob("manager_*.zip"), key=lambda f: f.stat().st_mtime, reverse=True)
@@ -245,26 +261,36 @@ def api_manager_update_apply():
     denied = require_owner() or require_admin()
     if denied:
         return denied
-    if any(is_running(folder.name) for folder in SERVERS_DIR.iterdir() if folder.is_dir()):
-        if not (request.get_json(silent=True) or {}).get("force"):
-            return jsonify({"ok": False, "error": "A server is running. Stop it first, or send force to update anyway."}), 409
+    data = request.get_json(silent=True) or {}
+    running = any(is_running(folder.name) for folder in SERVERS_DIR.iterdir() if folder.is_dir())
+    if running and not data.get("force"):
+        return jsonify({"ok": False, "error": "A server is running. Stop it first, or send force to update anyway."}), 409
+    restart = bool(data.get("restart")) and supervised()
     try:
-        result = apply_manager_update()
+        result = apply_manager_update(current_account()["username"] if restart else None)
     except (requests.RequestException, RuntimeError, zipfile.BadZipFile, OSError) as exc:
         return jsonify({"ok": False, "error": f"Update failed: {exc}"}), 500
     notify("manager_update", f"Installed **{result['ref']}** ({result['short']}), {len(result['files'])} file(s) changed.")
-    return jsonify({"ok": True, **result, "restart_required": True, "can_restart": supervised()})
+    if restart:
+        exit_for_restart()
+    return jsonify({"ok": True, **result, "restart_required": True, "restarting": restart, "can_restart": supervised()})
 
 @app.route("/api/manager/update/rollback", methods=["POST"])
 def api_manager_update_rollback():
     denied = require_owner() or require_admin()
     if denied:
         return denied
+    data = request.get_json(silent=True) or {}
+    restart = bool(data.get("restart")) and supervised()
     try:
+        if restart:
+            stop_for_restart(current_account()["username"], "rollback")
         result = restore_manager_snapshot()
     except (RuntimeError, zipfile.BadZipFile, OSError) as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
-    return jsonify({"ok": True, **result, "restart_required": True, "can_restart": supervised()})
+    if restart:
+        exit_for_restart()
+    return jsonify({"ok": True, **result, "restart_required": True, "restarting": restart, "can_restart": supervised()})
 
 def check_manager_update():
     state = load_update_state()
@@ -287,6 +313,8 @@ def check_manager_update():
     state["last_auto_error"] = None
     save_update_state(state)
     # Unattended installs only ever follow published releases; a bad commit on main must not reach the panel by itself.
+    if DEV_MODE and running_server_ids():
+        return  # the dev reloader restarts on every file change without stopping servers, so wait until none are running
     if latest.get("update_available") and state.get("auto_install") and state.get("channel") == "releases" and latest.get("release"):
         try:
             result = apply_manager_update()

@@ -4,6 +4,10 @@ A small local web panel for creating and managing Minecraft Java servers. It use
 
 The project currently supports Paper, Purpur, and Vanilla servers. Server data is kept in the local `servers/` directory.
 
+## Phone and LAN access
+
+Double-click `start-lan.bat`. The panel listens on the local network and prints an address such as `http://192.168.8.118:5000`; open it on a phone on the same Wi-Fi and sign in. If it does not connect, allow Python through the Windows firewall for Private networks. Debug mode is always off in this mode. Only use it on a network you trust, and keep a strong password.
+
 ## Requirements
 
 - Python 3.10 or newer

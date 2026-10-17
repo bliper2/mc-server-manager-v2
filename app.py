@@ -13,7 +13,7 @@ import time
 
 from manager import app
 from manager.automation import start_background_threads
-from manager.config import DEV_MODE, PORT, RESTART_EXIT_CODE
+from manager.config import DEV_MODE, HOST, LOOPBACK_HOSTS, PORT, RESTART_EXIT_CODE
 from manager.lifecycle import shutdown_servers
 from manager.util import psutil
 
@@ -64,10 +64,28 @@ def exit_when_supervisor_dies():
 def serve():
     try:
         from waitress import serve as waitress_serve
-        waitress_serve(app, host="127.0.0.1", port=PORT, threads=8)
+        waitress_serve(app, host=HOST, port=PORT, threads=8)
     except ImportError:
-        app.run(host="127.0.0.1", port=PORT, debug=False, threaded=True)
+        app.run(host=HOST, port=PORT, debug=False, threaded=True)
 
+
+def lan_addresses() -> list:
+    """Addresses a phone on the same network can type in."""
+    import socket
+    found = []
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            address = info[4][0]
+            if not address.startswith(("127.", "169.254.")) and address not in found:
+                found.append(address)
+    except OSError:
+        pass
+    return found
+
+
+if HOST not in LOOPBACK_HOSTS and DEV_MODE:
+    # Debug mode serves an interactive debugger, which must never be reachable from the network.
+    sys.exit("Refusing to listen on the network in debug mode. Start with start-lan.bat (it turns debug mode off).")
 
 if owns_background_work():
     start_background_threads()
@@ -77,9 +95,12 @@ if __name__ == "__main__":
         print("=" * 55)
         print("  Minecraft All-in-One Server Manager v2")
         print(f"  http://127.0.0.1:{PORT}")
+        if HOST not in LOOPBACK_HOSTS:
+            for address in lan_addresses():
+                print(f"  On your phone (same Wi-Fi): http://{address}:{PORT}")
         print("=" * 55)
     if DEV_MODE:
-        app.run(host="127.0.0.1", port=PORT, debug=True, use_reloader=True, threaded=True)
+        app.run(host=HOST, port=PORT, debug=True, use_reloader=True, threaded=True)
     elif is_supervisor_parent():
         sys.exit(supervise())
     else:

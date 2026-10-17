@@ -67,9 +67,8 @@ def _tell_status_boards():
         pass
 
 
-def _shutdown_and_exit(resume: list):
-    time.sleep(1.0)  # let the HTTP response that triggered this reach the browser
-    threads = [threading.Thread(target=stop_server, args=(sid, False)) for sid in resume]
+def _stop_servers_and_helpers(server_ids: list):
+    threads = [threading.Thread(target=stop_server, args=(sid, False)) for sid in server_ids]
     for thread in threads:
         thread.start()
     for thread in threads:
@@ -77,9 +76,16 @@ def _shutdown_and_exit(resume: list):
     for sid in list(playit_processes):
         stop_playit(sid)
     _tell_status_boards()
-    sys.stdout.flush()
-    sys.stderr.flush()
-    os._exit(RESTART_EXIT_CODE)
+
+
+def exit_for_restart(delay: float = 1.0):
+    """Exit with RESTART_EXIT_CODE shortly, so the HTTP response that asked for it reaches the browser first."""
+    def go():
+        time.sleep(delay)
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(RESTART_EXIT_CODE)
+    threading.Thread(target=go, daemon=True, name="restart-exit").start()
 
 
 def shutdown_servers():
@@ -88,22 +94,35 @@ def shutdown_servers():
     if not running:
         return
     print(f"Stopping {len(running)} server(s) safely...", flush=True)
-    threads = [threading.Thread(target=stop_server, args=(sid, False)) for sid in running]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join(timeout=60)
-    for sid in list(playit_processes):
-        stop_playit(sid)
-    _tell_status_boards()
+    _stop_servers_and_helpers(running)
 
-def begin_restart(by: str, reason: str = "restart") -> list:
-    """Stop servers safely, remember which were running, then exit so the supervisor relaunches us.
-    Returns the server ids that will be resumed."""
+
+def _remember_running(by: str, reason: str) -> list:
     resume = running_server_ids()
     if resume:
         RESTART_STATE_FILE.write_text(json.dumps({"resume": resume, "at": time.time()}), encoding="utf-8")
     audit(by, f"manager restart ({reason})", resume=",".join(resume))
+    return resume
+
+
+def stop_for_restart(by: str, reason: str = "restart") -> list:
+    """Stops every running server (blocking) and remembers them so the next boot starts them again.
+    Used before replacing files, so a file watcher or a crash cannot kill servers half-way through an update."""
+    resume = _remember_running(by, reason)
+    _stop_servers_and_helpers(resume)
+    return resume
+
+
+def _shutdown_and_exit(resume: list):
+    time.sleep(1.0)  # let the HTTP response that triggered this reach the browser
+    _stop_servers_and_helpers(resume)
+    exit_for_restart(0)
+
+
+def begin_restart(by: str, reason: str = "restart") -> list:
+    """Stop servers safely, remember which were running, then exit so the supervisor relaunches us.
+    Returns the server ids that will be resumed."""
+    resume = _remember_running(by, reason)
     threading.Thread(target=_shutdown_and_exit, args=(resume,), daemon=True).start()
     return resume
 

@@ -1,3 +1,6 @@
+const FS_ICON_FOLDER = '<svg class="fs-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 6a1.5 1.5 0 0 1 1.5-1.5h3.6l1.6 1.8H16A1.5 1.5 0 0 1 17.5 7.8V14A1.5 1.5 0 0 1 16 15.5H4A1.5 1.5 0 0 1 2.5 14V6z"/></svg>';
+const FS_ICON_FILE = '<svg class="fs-icon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 2.5h6l4 4V16.5A1 1 0 0 1 14 17.5H5a1 1 0 0 1-1-1v-13a1 1 0 0 1 1-1z"/><path d="M11 2.5v4h4"/></svg>';
+
 // File manager, server.properties and plugin config editor.
 
 let fsDirty = false;
@@ -34,7 +37,7 @@ async function loadFs() {
   document.getElementById("fs-list").innerHTML = data.items.map(item => `
     <div class="fs-item">
       <span onclick="${item.is_dir ? `fsEnter(${jsArg(item.name)})` : `fsOpen(${jsArg(item.name)})`}" class="name" tabindex="0" role="button">
-        ${item.is_dir ? "📁" : "📄"} ${escapeHtml(item.name)}
+        ${item.is_dir ? FS_ICON_FOLDER : FS_ICON_FILE} ${escapeHtml(item.name)}
       </span>
       <span class="meta" title="${escapeHtml(new Date(item.modified).toLocaleString())}">${item.is_dir ? "" : `${formatBytes(item.size)} · `}${relativeTime(item.modified)}</span>
       <span class="actions">

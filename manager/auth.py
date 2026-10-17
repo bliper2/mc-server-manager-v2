@@ -63,7 +63,7 @@ DEFAULT_STAFF_PERMISSIONS = ("control", "console", "backups")
 ENDPOINT_RULES = {
     "api_start": "control", "api_stop": "control", "api_restart": "control", "api_reload_components": "control",
     "api_playit": "control", "api_playit_start": "control", "api_playit_stop": "control", "api_automation": "control",
-    "api_command": "console", "api_player_action": "console", "api_map_markers": "console",
+    "api_command": "console", "api_player_action": "console", "api_prank": "console", "api_map_markers": "console",
     "api_fs_write": "files", "api_fs_delete": "files", "api_fs_mkdir": "files", "api_fs_upload": "files",
     "api_props_set": "files", "api_props_raw_set": "files", "api_install": "files", "api_updates_apply": "files",
     "api_server_logo": "files", "api_anticheat": "files", "api_auto_update": "files", "api_rcon": "files",

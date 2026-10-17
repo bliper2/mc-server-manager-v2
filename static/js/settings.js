@@ -84,7 +84,7 @@ async function applyManagerUpdate() {
   const button = document.getElementById("btn-update-apply");
   if (!(await uiConfirm("Install this update? The files being replaced are saved first, then the manager restarts and this page reloads by itself.", { title: "Install update", confirmText: "Install and restart" }))) return;
   const post = force => fetch("/api/manager/update/apply", {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ force })
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ force, restart: true })
   }).then(response => response.json());
   await withBusy(button, async () => {
     try {
@@ -101,6 +101,7 @@ async function applyManagerUpdate() {
       if (!data.ok) throw new Error(data.error || "Update failed");
       showToast(`Installed ${data.ref}`, "success");
       document.getElementById("update-installed").textContent = `${data.short} (restart pending)`;
+      if (data.restarting) { watchManagerRestart(data.resumes); return; }
       if (data.can_restart) await restartManager();
       else showToast("Close the manager's terminal window and start it again to use the update.", "warning");
       loadManagerUpdate();
@@ -113,9 +114,10 @@ async function applyManagerUpdate() {
 async function rollbackManagerUpdate() {
   if (!(await uiConfirm("Restore the manager files from the last snapshot? The manager restarts afterwards.", { title: "Roll back", confirmText: "Roll back", danger: true }))) return;
   try {
-    const data = await requestJson("/api/manager/update/rollback", { method: "POST" });
+    const data = await requestJson("/api/manager/update/rollback", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ restart: true }) });
     if (!data.ok) throw new Error(data.error || "Rollback failed");
     showToast(`Restored ${data.files.length} files`, "success");
+    if (data.restarting) { watchManagerRestart(0); return; }
     if (data.can_restart) await restartManager();
     else showToast("Close the manager's terminal window and start it again.", "warning");
     loadManagerUpdate();

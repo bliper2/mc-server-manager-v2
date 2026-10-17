@@ -11,7 +11,8 @@
   <link rel="stylesheet" href="/static/vendor/leaflet.css" />
   <link rel="stylesheet" href="/static/css/themes.css?v={{ asset }}" />
   <link rel="stylesheet" href="/static/css/app.css?v={{ asset }}" />
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Fira+Code:wght@400;500;600&family=Manrope:wght@400;500;600;700;800&family=Orbitron:wght@500;600;700;800&family=Press+Start+2P&family=Rajdhani:wght@400;500;600;700&family=Space+Mono:wght@400;700&family=Space+Grotesk:wght@400;500;600;700&family=VT323&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/design.css?v={{ asset }}" />
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&family=DM+Sans:wght@400;500;600;700&family=Fira+Code:wght@400;500;600&family=Manrope:wght@400;500;600;700;800&family=Orbitron:wght@500;600;700;800&family=Press+Start+2P&family=Rajdhani:wght@400;500;600;700&family=Space+Mono:wght@400;700&family=Space+Grotesk:wght@400;500;600;700&family=VT323&display=swap" rel="stylesheet" />
 </head>
 <body data-role="{{ role }}" data-user="{{ user }}" data-perms="{{ perms }}" data-version="{{ version }}">
   <!-- MC-SERVER-MANAGER-OWNER: Mrkraps aka orgeco -->
@@ -53,6 +54,10 @@
     <main class="main" id="main-content" tabindex="-1">
       <div id="dev-banner" class="notice warn" data-owner-only hidden>
         <strong>Debug mode is on.</strong> This is meant for developing the panel. Before other people use it through Tailscale, start it with <code>start-shared.bat</code>.
+      </div>
+      <div id="reload-banner" class="notice info" hidden>
+        <span>A new version of the panel is ready. Reloading now would discard what you are typing.</span>
+        <button class="btn small primary" onclick="window.location.reload()">Reload now</button>
       </div>
       <div id="update-banner" class="notice info" hidden>
         <span id="update-banner-text">An update was installed. Restart to use it.</span>
@@ -372,7 +377,7 @@
           <section class="settings-card">
             <div class="settings-card-heading"><div><span class="eyebrow">Appearance</span><h2>Make it yours</h2></div><span class="settings-symbol">Aa</span></div>
             <div class="setting-row"><div><strong>Website theme</strong><small>Choose the atmosphere for the control center.</small></div><select class="setting-input" data-setting="theme"><option value="auto">Match my system</option><optgroup label="Dark neutral"><option value="control">Control room</option><option value="slate">Industrial slate</option><option value="graphite">Graphite</option><option value="carbon">Carbon</option><option value="obsidian">Obsidian</option><option value="onyx">Onyx</option><option value="ink">Ink</option></optgroup><optgroup label="Cool"><option value="midnight">Midnight</option><option value="ocean">Signal ocean</option><option value="abyss">Abyss</option><option value="northern">Northern</option><option value="iceberg">Iceberg</option><option value="indigo">Indigo</option><option value="teal">Deep teal</option><option value="neoncity">Neon city</option><option value="vampire">Vampire</option></optgroup><optgroup label="Warm"><option value="sunset">Redstone sunset</option><option value="sandstone">Warm sandstone</option><option value="ember">Ember</option><option value="mocha">Mocha</option><option value="rust">Rust</option><option value="wine">Wine</option><option value="roasted">Roasted</option></optgroup><optgroup label="Green"><option value="forest">Deep forest</option><option value="matrix">Matrix</option><option value="moss">Moss</option><option value="phosphor">Phosphor CRT</option></optgroup><optgroup label="Retro"><option value="synthwave">Synthwave</option><option value="vapor">Vaporwave</option><option value="cyber">Cyberpunk</option><option value="ambercrt">Amber CRT</option><option value="commodore">Commodore</option></optgroup><optgroup label="Light"><option value="light">Paper light</option><option value="linen">Linen</option><option value="daylight">Daylight</option><option value="frost">Frost</option><option value="solar">Solar</option></optgroup></select></div>
-            <div class="setting-row"><div><strong>Interface font</strong><small>Change the personality of the dashboard.</small></div><select class="setting-input" data-setting="font"><option value="dm">DM Sans</option><option value="manrope">Manrope</option><option value="space">Space Grotesk</option><option value="rajdhani">Rajdhani</option><option value="orbitron">Orbitron</option><option value="pixel">Press Start 2P</option><option value="terminal">VT323</option></select></div>
+            <div class="setting-row"><div><strong>Interface font</strong><small>Change the personality of the dashboard.</small></div><select class="setting-input" data-setting="font"><option value="geist">Geist</option><option value="dm">DM Sans</option><option value="manrope">Manrope</option><option value="space">Space Grotesk</option><option value="rajdhani">Rajdhani</option><option value="orbitron">Orbitron</option><option value="pixel">Press Start 2P</option><option value="terminal">VT323</option></select></div>
             <div class="setting-row accent-row"><div><strong>Accent color</strong><small id="accent-name">Choose the highlight color used across the manager.</small></div><div class="accent-grid" id="accent-grid" role="radiogroup" aria-label="Accent color"></div><select class="setting-input" data-setting="accent" hidden><optgroup label="Greens"><option value="lime" data-color="#a3e635">Lime</option><option value="green" data-color="#49df80">Green</option><option value="emerald" data-color="#2cdd9c">Emerald</option><option value="mint" data-color="#7de8c4">Mint</option><option value="spearmint" data-color="#90dfb8">Spearmint</option><option value="sage" data-color="#96b686">Sage</option><option value="teal" data-color="#20dfcc">Teal</option></optgroup><optgroup label="Blues"><option value="cyan" data-color="#34dbf4">Cyan</option><option value="ice" data-color="#bae4f3">Ice</option><option value="sky" data-color="#59c6f8">Sky</option><option value="blue" data-color="#8fcbff">Blue</option><option value="azure" data-color="#4795f5">Azure</option><option value="cobalt" data-color="#4c7df0">Cobalt</option><option value="royal" data-color="#6179ef">Royal</option><option value="indigo" data-color="#7b75f0">Indigo</option></optgroup><optgroup label="Purples and pinks"><option value="lavender" data-color="#c1b1f1">Lavender</option><option value="violet" data-color="#9f7bf4">Violet</option><option value="purple" data-color="#b26eed">Purple</option><option value="orchid" data-color="#d774e7">Orchid</option><option value="magenta" data-color="#ed5ad4">Magenta</option><option value="fuchsia" data-color="#f04cb4">Fuchsia</option><option value="bubblegum" data-color="#f7a1cc">Bubblegum</option><option value="pink" data-color="#f471a5">Pink</option><option value="rose" data-color="#f25f77">Rose</option></optgroup><optgroup label="Warm"><option value="red" data-color="#f0574c">Red</option><option value="coral" data-color="#f6795a">Coral</option><option value="peach" data-color="#f9b694">Peach</option><option value="tangerine" data-color="#fa802e">Tangerine</option><option value="amber" data-color="#f5b74d">Amber</option><option value="gold" data-color="#f6c628">Gold</option><option value="yellow" data-color="#faed38">Yellow</option><option value="lemon" data-color="#f8f877">Lemon</option></optgroup><optgroup label="Neutral"><option value="silver" data-color="#c2c5cb">Silver</option><option value="slate" data-color="#93a5be">Slate</option><option value="stone" data-color="#b7ada4">Stone</option><option value="snow" data-color="#f0f0f0">Snow</option></optgroup></select></div>
             <div class="setting-row"><div><strong>Interface density</strong><small>Control the spacing of cards and panels.</small></div><select class="setting-input" data-setting="density"><option value="comfortable">Comfortable</option><option value="compact">Compact</option></select></div>
             <div class="setting-row"><div><strong>Motion</strong><small>Keep subtle page and hover transitions enabled.</small></div><label class="setting-switch"><input class="setting-input" data-setting="motion" type="checkbox" checked /><span></span></label></div>
@@ -641,38 +646,99 @@
         </div>
 
         <div id="dtab-players" class="dtab-panel">
-          <div class="panel-card">
-            <div class="player-actions">
-              <input type="text" id="player-name" placeholder="Player name" autocomplete="off" />
-              <button class="btn success small" onclick="playerAction('op')">OP</button>
-              <button class="btn small" onclick="playerAction('deop')">DeOP</button>
-              <button class="btn warning small" onclick="playerAction('kick')">Kick</button>
-              <button class="btn danger small" onclick="playerAction('ban')">Ban</button>
-              <button class="btn small" onclick="playerAction('pardon')">Pardon</button>
-              <button class="btn small" onclick="playerAction('whitelist_add')">WL Add</button>
-              <button class="btn small" onclick="playerAction('whitelist_remove')">WL Remove</button>
-              <button class="btn small" onclick="playerAction('whitelist_on')">WL On</button>
-              <button class="btn small" onclick="playerAction('whitelist_off')">WL Off</button>
-            </div>
-            <div class="troll-panel">
-              <div class="active-players-heading"><h3>Playful controls</h3><span class="badge type">ADMIN ONLY</span></div>
-              <div class="player-actions"><select id="troll-action"><option value="fake_op">Fake OP message</option><option value="scare">Warden sound</option><option value="blind">Blindness</option><option value="slow">Slowness</option><option value="message">Custom message</option></select><input type="text" id="troll-value" placeholder="Message (for custom message)" /><button class="btn warning small" onclick="runTrollAction()">Run prank</button></div>
-            </div>
-            <div class="active-players-panel">
-              <div class="active-players-heading"><h3>Active players</h3><span id="active-player-count" class="badge offline">0 online</span></div>
-              <div id="active-player-list" class="active-player-list"><div class="empty">No players online</div></div>
-            </div>
-            <p class="hint">Select an active player or enter a name. Server must be <strong>online</strong> for actions.</p>
-            <div class="playtime-panel">
-              <div class="active-players-heading"><h3>Playtime</h3><span class="badge type">TOP 25</span></div>
-              <div id="playtime-list" class="playtime-list"><div class="empty">No sessions recorded yet</div></div>
-            </div>
-            <div class="player-lists">
-              <div><h4>Operators</h4><div id="ops-list" class="file-list"></div></div>
-              <div><h4>Whitelist</h4><div id="wl-list" class="file-list"></div></div>
-              <div><h4>Banned</h4><div id="ban-list" class="file-list"></div></div>
-            </div>
-            <button class="btn small" onclick="loadPlayers()"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 8a5.5 5.5 0 0 1 9.6-3.7M13.5 8a5.5 5.5 0 0 1-9.6 3.7"/><path d="M12.6 2.5v2.5h-2.5M3.4 13.5V11h2.5"/></svg> Refresh lists</button>
+          <div class="players-layout">
+            <aside class="players-roster panel-card" aria-label="Players">
+              <div class="roster-head">
+                <h3>Players</h3>
+                <span id="active-player-count" class="badge offline">0 online</span>
+                <button class="icon-btn" onclick="loadPlayers()" aria-label="Refresh players" title="Refresh"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 8a5.5 5.5 0 0 1 9.6-3.7M13.5 8a5.5 5.5 0 0 1-9.6 3.7"/><path d="M12.6 2.5v2.5h-2.5M3.4 13.5V11h2.5"/></svg></button>
+              </div>
+              <div id="active-player-list" class="roster-list"><div class="empty">No players online</div></div>
+              <div class="roster-tools">
+                <button class="btn ghost small" type="button" onclick="selectAllPlayers()">Select all</button>
+                <button class="btn ghost small" type="button" onclick="clearPlayerSelection()">Clear</button>
+              </div>
+              <form class="roster-add" onsubmit="addTypedPlayer(event)">
+                <input type="text" id="player-name" placeholder="Add a name (offline players too)" autocomplete="off" aria-label="Player name" maxlength="32" />
+                <button class="btn small" type="submit">Add</button>
+              </form>
+            </aside>
+
+            <section class="players-main">
+              <div class="target-bar" id="target-bar" aria-live="polite"></div>
+              <div class="seg" role="tablist" aria-label="Player tools">
+                <button class="seg-btn active" role="tab" aria-selected="true" data-pane="moderate" type="button">Moderate</button>
+                <button class="seg-btn" role="tab" aria-selected="false" data-pane="pranks" type="button">Pranks</button>
+                <button class="seg-btn" role="tab" aria-selected="false" data-pane="lists" type="button">Lists</button>
+                <button class="seg-btn" role="tab" aria-selected="false" data-pane="playtime" type="button">Playtime</button>
+              </div>
+
+              <div class="seg-pane active" data-pane="moderate">
+                <div class="panel-card tool-group">
+                  <h4>Permissions and access</h4>
+                  <div class="btn-row">
+                    <button class="btn small" onclick="playerAction('op')">Make OP</button>
+                    <button class="btn small" onclick="playerAction('deop')">Remove OP</button>
+                    <button class="btn small" onclick="playerAction('whitelist_add')">Whitelist add</button>
+                    <button class="btn small" onclick="playerAction('whitelist_remove')">Whitelist remove</button>
+                    <button class="btn small ghost" onclick="playerAction('whitelist_on')">Whitelist on</button>
+                    <button class="btn small ghost" onclick="playerAction('whitelist_off')">Whitelist off</button>
+                  </div>
+                </div>
+                <div class="panel-card tool-group">
+                  <h4>Remove from the server</h4>
+                  <input type="text" id="player-reason" placeholder="Reason (shown to the player)" maxlength="120" aria-label="Reason" />
+                  <div class="btn-row">
+                    <button class="btn small warning" onclick="playerAction('kick')">Kick</button>
+                    <button class="btn small danger" onclick="playerAction('ban')">Ban</button>
+                    <button class="btn small" onclick="playerAction('pardon')">Pardon</button>
+                  </div>
+                </div>
+                <div class="panel-card tool-group">
+                  <h4>Quick actions</h4>
+                  <div class="btn-row">
+                    <button class="btn small" onclick="playerAction('heal')">Heal</button>
+                    <button class="btn small" onclick="playerAction('freeze')">Freeze</button>
+                    <button class="btn small" onclick="playerAction('unfreeze')">Unfreeze</button>
+                    <button class="btn small danger" onclick="playerAction('kill')">Kill</button>
+                  </div>
+                  <div class="inline-form">
+                    <input type="text" id="give-item" placeholder="minecraft:diamond" value="minecraft:diamond" aria-label="Item" />
+                    <input type="number" id="give-count" min="1" max="64" value="1" aria-label="Amount" />
+                    <button class="btn small" onclick="playerAction('give')">Give</button>
+                  </div>
+                  <div class="inline-form">
+                    <input type="text" id="tp-target" placeholder="Teleport to player" aria-label="Teleport to player" />
+                    <button class="btn small" onclick="playerAction('tp_to_player')">Teleport</button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="seg-pane" data-pane="pranks">
+                <div class="prank-bar">
+                  <input type="search" id="prank-search" placeholder="Search pranks" aria-label="Search pranks" autocomplete="off" />
+                  <div id="prank-cats" class="chip-row" role="group" aria-label="Categories"></div>
+                </div>
+                <div id="prank-recent" class="prank-recent" hidden></div>
+                <div id="prank-grid" class="prank-grid"><div class="loading">Loading</div></div>
+                <p class="hint">Pranks only touch the chosen players and are always harmless: effects are short, animals are invulnerable and landings are cushioned. The server must be running. A few sounds need Minecraft 1.19 or newer.</p>
+              </div>
+
+              <div class="seg-pane" data-pane="lists">
+                <div class="player-lists">
+                  <div class="panel-card"><h4>Operators</h4><div id="ops-list" class="file-list"></div></div>
+                  <div class="panel-card"><h4>Whitelist</h4><div id="wl-list" class="file-list"></div></div>
+                  <div class="panel-card"><h4>Banned</h4><div id="ban-list" class="file-list"></div></div>
+                </div>
+              </div>
+
+              <div class="seg-pane" data-pane="playtime">
+                <div class="panel-card">
+                  <div class="roster-head"><h3>Playtime</h3><span class="badge type">TOP 25</span></div>
+                  <div id="playtime-list" class="playtime-list"><div class="empty">No sessions recorded yet</div></div>
+                </div>
+              </div>
+            </section>
           </div>
         </div>
 
@@ -974,6 +1040,8 @@
       <span class="boot-spinner" aria-hidden="true"></span>
       <strong id="boot-title">Restarting the manager</strong>
       <p id="boot-text">This page reloads by itself when it is back.</p>
+      <div class="boot-progress" aria-hidden="true"><i id="boot-bar"></i></div>
+      <ol id="boot-steps" class="boot-steps" hidden></ol>
     </div>
   </div>
 
@@ -996,6 +1064,7 @@
   <script src="/static/js/servers.js?v={{ asset }}"></script>
   <script src="/static/js/detail.js?v={{ asset }}"></script>
   <script src="/static/js/grim.js?v={{ asset }}"></script>
+  <script src="/static/js/players.js?v={{ asset }}"></script>
   <script src="/static/js/connect.js?v={{ asset }}"></script>
   <script src="/static/js/console.js?v={{ asset }}"></script>
   <script src="/static/js/files.js?v={{ asset }}"></script>
@@ -1008,6 +1077,7 @@
   <script src="/static/js/logos.js?v={{ asset }}"></script>
   <script src="/static/js/palette.js?v={{ asset }}"></script>
   <script src="/static/js/boot.js?v={{ asset }}"></script>
+  <script src="/static/js/nav.js?v={{ asset }}"></script>
   <script src="/static/js/main.js?v={{ asset }}"></script>
   <script src="/static/js/map.js?v={{ asset }}"></script>
   <script type="module" src="/static/js/scene.js"></script>
