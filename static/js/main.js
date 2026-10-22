@@ -97,32 +97,6 @@ window.addEventListener("scroll", () => {
 
 document.getElementById("search-q").addEventListener("keydown", e => { if (e.key === "Enter") searchModrinth(); });
 
-document.addEventListener("pointerdown", event => {
-  if (!(event.target instanceof Element) || document.body.classList.contains("reduced-motion")) return;
-  const el = event.target.closest(RIPPLE_SELECTOR);
-  if (!el || el.disabled) return;
-  const box = el.getBoundingClientRect();
-  el.style.setProperty("--rx", `${event.clientX - box.left}px`);
-  el.style.setProperty("--ry", `${event.clientY - box.top}px`);
-  el.classList.remove("rippling");
-  void el.offsetWidth;
-  el.classList.add("rippling");
-  setTimeout(() => el.classList.remove("rippling"), 650);
-});
-
-document.addEventListener("pointermove", event => {
-  if (spotlightFrame || !(event.target instanceof Element)) return;
-  const card = event.target.closest(SPOTLIGHT_SELECTOR);
-  if (!card) return;
-  const { clientX, clientY } = event;
-  spotlightFrame = requestAnimationFrame(() => {
-    spotlightFrame = null;
-    const box = card.getBoundingClientRect();
-    card.style.setProperty("--mx", `${clientX - box.left}px`);
-    card.style.setProperty("--my", `${clientY - box.top}px`);
-  });
-}, { passive: true });
-
 document.getElementById("server-search").addEventListener("input", event => {
   serverQuery = event.target.value;
   repaintServers();

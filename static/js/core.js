@@ -78,7 +78,7 @@ function can(permission) {
 const OWNER_WATERMARK = "MC-SERVER-MANAGER / Mrkraps aka orgeco";
 
 const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-const defaultSettings = { theme: "control", font: "geist", accent: "emerald", density: "comfortable", motion: !prefersReducedMotion, confirmActions: true, autoRefresh: true, refreshInterval: "30", autoPing: true, pingInterval: "5", consoleAutoRefresh: true, backdrop3d: false };
+const defaultSettings = { theme: "control", font: "public", accent: "blue", density: "comfortable", motion: !prefersReducedMotion, confirmActions: true, autoRefresh: true, refreshInterval: "30", autoPing: true, pingInterval: "5", consoleAutoRefresh: true, backdrop3d: false };
 
 function getSettings() {
   try { return { ...defaultSettings, ...JSON.parse(localStorage.getItem("mc-manager-settings") || "{}") }; }
@@ -332,13 +332,6 @@ function relativeTime(iso) {
   return new Date(iso).toLocaleDateString();
 }
 
-// Press ripple and cursor spotlight. Pure decoration, skipped when motion is off.
-const RIPPLE_SELECTOR = ".btn, .mini-btn, .nav-btn, .dtab, .filter-pill, .ram-preset, .dim-tab, .console-tool, .icon-btn";
-
-const SPOTLIGHT_SELECTOR = ".server-card, .summary-pill, .hud-gauge, .panel-card, .settings-card, .info-card, .featured-item, .result-card, .form-section, .create-commit";
-
-let spotlightFrame = null;
-
 function tickLiveClock() {
   const el = document.getElementById("live-clock");
   if (el) el.textContent = new Date().toLocaleTimeString([], { hour12: false });
@@ -359,7 +352,7 @@ function toggleSidebar(force) {
 }
 
 function restoreSidebar() {
-  try { if (localStorage.getItem("mc-manager-sidebar") === "1") toggleSidebar(true); } catch {}
+  try { if (localStorage.getItem("mc-manager-sidebar") !== "0") toggleSidebar(true); } catch {}
 }
 
 let faviconBase = null;

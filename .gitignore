@@ -36,3 +36,5 @@ secrets*.json
 
 lan-run.log
 lan-run.err
+
+.taste-skill/

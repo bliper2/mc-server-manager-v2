@@ -9,6 +9,11 @@
   indicator.setAttribute("aria-hidden", "true");
   nav.prepend(indicator);
 
+  nav.querySelectorAll(".nav-btn").forEach(button => {
+    const label = button.querySelector("span")?.textContent.trim();
+    if (label) { button.title = label; button.setAttribute("aria-label", label); button.dataset.navLabel = label; }
+  });
+
   const visibleItems = () => [...nav.querySelectorAll(".nav-btn")].filter(button => button.offsetParent !== null);
 
   function place(instant) {
