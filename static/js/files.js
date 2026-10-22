@@ -41,9 +41,9 @@ async function loadFs() {
       </span>
       <span class="meta" title="${escapeHtml(new Date(item.modified).toLocaleString())}">${item.is_dir ? "" : `${formatBytes(item.size)} · `}${relativeTime(item.modified)}</span>
       <span class="actions">
-        <button class="btn small" data-perm="files" onclick="fsRename(${jsArg(item.name)})" title="Rename" aria-label="Rename ${escapeHtml(item.name)}">✎</button>
-        ${!item.is_dir ? `<button class="btn small" onclick="fsDownload(${jsArg(item.name)})" title="Download" aria-label="Download ${escapeHtml(item.name)}">↓</button>` : ""}
-        <button class="btn danger small" data-perm="files" onclick="fsDelete(${jsArg(item.name)})" title="Delete" aria-label="Delete ${escapeHtml(item.name)}">✕</button>
+        <button class="btn small" data-perm="files" onclick="fsRename(${jsArg(item.name)})" title="Rename" aria-label="Rename ${escapeHtml(item.name)}">${icon("edit")}</button>
+        ${!item.is_dir ? `<button class="btn small" onclick="fsDownload(${jsArg(item.name)})" title="Download" aria-label="Download ${escapeHtml(item.name)}">${icon("download")}</button>` : ""}
+        <button class="btn danger small" data-perm="files" onclick="fsDelete(${jsArg(item.name)})" title="Delete" aria-label="Delete ${escapeHtml(item.name)}">${icon("close")}</button>
       </span>
     </div>`).join("") || '<div class="empty">Empty folder</div>';
 }

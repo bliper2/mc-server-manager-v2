@@ -44,8 +44,8 @@ const REGION_CACHE_LIMIT = 220;
 
 const PLAYER_COLORS = ["#b9f227", "#8ec8ff", "#f4bb52", "#ff766d", "#c084fc", "#34d399", "#f472b6", "#38bdf8"];
 const PLACE_KINDS = {
-  base: ["⌂", "#f4bb52"], farm: ["☘", "#34d399"], portal: ["◈", "#c084fc"], shop: ["♦", "#ffd166"], spawn: ["★", "#b9f227"], mine: ["⚒", "#9ca3af"],
-  village: ["☗", "#fb923c"], stronghold: ["✦", "#f87171"], monument: ["◇", "#38bdf8"], warp: ["➤", "#60a5fa"], death: ["☠", "#e5e7eb"], other: ["■", "#a3a3a3"]
+  base: ["#f4bb52"], farm: ["#34d399"], portal: ["#c084fc"], shop: ["#ffd166"], spawn: ["#b9f227"], mine: ["#9ca3af"],
+  village: ["#fb923c"], stronghold: ["#f87171"], monument: ["#38bdf8"], warp: ["#60a5fa"], death: ["#e5e7eb"], other: ["#a3a3a3"]
 };
 const LAYER_DEFS = [
   ["terrain", "Terrain", true], ["grid", "Grid lines", true], ["players", "Online players", true], ["trails", "Player trails", true], ["offline", "Last seen", true],
@@ -507,7 +507,7 @@ function renderWorldMarkers() {
   const online = new Set(lastPlayers.map(p => p.name));
   const spawn = worldInfo.spawn;
   if (spawn && spawn.dim === activeDimension) {
-    L.marker(toLatLng(spawn.x, spawn.z), { icon: pinIcon("spawn-pin", "★ World spawn"), keyboard: false })
+    L.marker(toLatLng(spawn.x, spawn.z), { icon: pinIcon("spawn-pin", "World spawn"), keyboard: false })
       .bindPopup(`<strong>World spawn</strong><br>${Math.round(spawn.x)}, ${Math.round(spawn.y)}, ${Math.round(spawn.z)}<br><button class="mini-btn" onclick="copyText('${Math.round(spawn.x)} ${Math.round(spawn.y)} ${Math.round(spawn.z)}')">Copy coordinates</button>`)
       .addTo(spawnLayer);
   }
@@ -567,8 +567,8 @@ async function loadWorld(first = false) {
 
 // ---------------------------------------------------------------- places (the markers you place)
 function placeMarkerHtml(place) {
-  const [glyph, color] = PLACE_KINDS[place.kind] || PLACE_KINDS.other;
-  return `<div class="place-pin" style="--pc:${color}"><span class="place-glyph">${glyph}</span><span class="place-name">${escapeHtml(place.label)}</span></div>`;
+  const [color] = PLACE_KINDS[place.kind] || PLACE_KINDS.other;
+  return `<div class="place-pin" style="--pc:${color}"><span class="place-glyph">${icon("marker")}</span><span class="place-name">${escapeHtml(place.label)}</span></div>`;
 }
 
 function placePopup(place) {
@@ -597,11 +597,11 @@ function renderPlacesList() {
   const shown = places.filter(p => `${p.label} ${p.owner || ""} ${p.kind}`.toLowerCase().includes(placeFilter));
   list.innerHTML = shown.length
     ? shown.map(p => {
-        const [glyph, color] = PLACE_KINDS[p.kind] || PLACE_KINDS.other;
+        const [color] = PLACE_KINDS[p.kind] || PLACE_KINDS.other;
         const id = escapeHtml(JSON.stringify(String(p.id)));
-        return `<div class="place-row"><button class="active-player" onclick="goToPlace(${id})"><span class="place-glyph" style="color:${color}">${glyph}</span><strong>${escapeHtml(p.label)}</strong>
+        return `<div class="place-row"><button class="active-player" onclick="goToPlace(${id})"><span class="place-glyph" style="color:${color}">${icon("marker")}</span><strong>${escapeHtml(p.label)}</strong>
           <span>${Math.round(p.x)}, ${Math.round(p.z)}${(p.dim || "overworld") !== "overworld" ? ` · ${(p.dim || "").replace("the_", "")}` : ""}</span></button>
-          <button class="mini-btn" title="Rename" aria-label="Rename ${escapeHtml(p.label)}" onclick="renamePlace(${id})">✎</button><button class="mini-btn danger" title="Remove" aria-label="Remove ${escapeHtml(p.label)}" onclick="removeStructure(${id})">✕</button></div>`;
+          <button class="mini-btn" title="Rename" aria-label="Rename ${escapeHtml(p.label)}" onclick="renamePlace(${id})">${icon("edit")}</button><button class="mini-btn danger" title="Remove" aria-label="Remove ${escapeHtml(p.label)}" onclick="removeStructure(${id})" aria-label="Remove place">${icon("close")}</button></div>`;
       }).join("")
     : `<div class="empty">${places.length ? "No match" : "Nothing marked yet. Right-click the map to add a place."}</div>`;
 }

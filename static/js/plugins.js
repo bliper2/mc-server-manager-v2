@@ -16,14 +16,14 @@ function pluginRows(list, folder) {
     const meta = [info.version ? `v${escapeHtml(info.version)}` : "", info.authors?.length ? `by ${escapeHtml(info.authors.join(", "))}` : "", formatBytes(file.size)].filter(Boolean).join(" · ");
     return `<div class="item plugin-row${file.enabled ? "" : " is-off"}${file.problem ? " has-problem" : ""}">
       <span class="plugin-name" title="${escapeHtml(file.name)}"><strong>${escapeHtml(title)}</strong>${file.enabled ? "" : ' <em>disabled</em>'}
-        ${update >= 0 ? `<button class="chip-update" data-perm="files" onclick="applyUpdate(${update})" title="Install the newest build">↑ ${escapeHtml(lastUpdateItems[update].latest_version || "update")}</button>` : ""}
+        ${update >= 0 ? `<button class="chip-update" data-perm="files" onclick="applyUpdate(${update})" title="Install the newest build">${icon("up")} ${escapeHtml(lastUpdateItems[update].latest_version || "update")}</button>` : ""}
         <small class="plugin-meta">${meta}</small>
         ${info.description ? `<small class="plugin-desc">${escapeHtml(info.description)}</small>` : ""}
-        ${file.problem ? `<small class="plugin-problem">⚠ ${escapeHtml(file.problem)}</small>` : ""}</span>
+        ${file.problem ? `<small class="plugin-problem">${icon("warning")} ${escapeHtml(file.problem)}</small>` : ""}</span>
       ${file.has_config ? `<button class="btn small" onclick="showPluginConfigs(${jsArg(info.name)})" title="Open this plugin's configuration files">Config</button>` : ""}
-      ${/^https?:\/\//.test(info.website || "") ? `<a class="btn small" href="${escapeHtml(info.website)}" target="_blank" rel="noopener noreferrer" title="Website">↗</a>` : ""}
+      ${/^https?:\/\//.test(info.website || "") ? `<a class="btn small" href="${escapeHtml(info.website)}" target="_blank" rel="noopener noreferrer" title="Website" aria-label="Website">${icon("external")}</a>` : ""}
       <label class="setting-switch" data-perm="files" title="${file.enabled ? "Disable" : "Enable"} (applies after a restart)"><input type="checkbox" ${file.enabled ? "checked" : ""} onchange="togglePlugin(${jsArg(folder)}, ${jsArg(file.name)}, this.checked)" aria-label="Enabled" /><span></span></label>
-      <button class="btn danger small" data-perm="files" onclick="deletePlugin(${jsArg(folder)}, ${jsArg(file.name)})" aria-label="Delete ${escapeHtml(file.name)}">✕</button>
+      <button class="btn danger small" data-perm="files" onclick="deletePlugin(${jsArg(folder)}, ${jsArg(file.name)})" aria-label="Delete ${escapeHtml(file.name)}">${icon("close")}</button>
     </div>`;
   }).join("");
 }
@@ -266,7 +266,7 @@ function renderUpdateResults() {
       <div class="backup-meta">
         <strong>${escapeHtml(item.name || item.file)}</strong>
         <span>${item.matched
-          ? (item.update_available ? `${escapeHtml(item.current_version || "?")} → ${escapeHtml(item.latest_version || "?")}` : `Up to date · ${escapeHtml(item.current_version || "")}`)
+          ? (item.update_available ? `${escapeHtml(item.current_version || "?")} to ${escapeHtml(item.latest_version || "?")}` : `Up to date · ${escapeHtml(item.current_version || "")}`)
           : "Not found on Modrinth"}</span>
       </div>
       <div class="backup-item-actions">
@@ -431,7 +431,7 @@ function projectCard(h, type, i, cls) {
   return `
       <article class="${cls}" style="--i:${i % 12}">
         ${h.icon_url ? `<img src="${escapeHtml(h.icon_url)}" alt="" loading="lazy" onerror="this.style.display='none'" />` : '<div class="project-icon"></div>'}
-        <div class="info"><h4>${escapeHtml(h.title)}</h4><p>${escapeHtml(h.description || "")}</p><div class="stats">↓ ${(h.downloads || 0).toLocaleString()} downloads${h.author ? ` · ${escapeHtml(h.author)}` : ""}</div></div>
+        <div class="info"><h4>${escapeHtml(h.title)}</h4><p>${escapeHtml(h.description || "")}</p><div class="stats">${icon("download")} ${(h.downloads || 0).toLocaleString()} downloads${h.author ? ` · ${escapeHtml(h.author)}` : ""}</div></div>
         ${type === "modpack" || type === "cfpack"
           ? `<button class="btn primary small" data-perm="manage" onclick="openModpackDialog(${jsArg(h.project_id || h.slug)}, ${jsArg(h.title)}, ${jsArg(h.icon_url || "")}, ${jsArg(type === "cfpack" ? "curseforge" : "modrinth")})">Create server</button>`
           : `<button class="btn primary small" onclick="installProject(${jsArg(h.project_id || h.slug)}, ${jsArg(h.title)}, ${jsArg(type)})">Install</button>`}

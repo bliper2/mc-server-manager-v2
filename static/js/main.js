@@ -35,7 +35,7 @@ document.getElementById("create-port").addEventListener("input", event => {
   event.target.classList.toggle("invalid", !valid && !blank);
   event.target.setAttribute("aria-invalid", valid || blank ? "false" : "true");
   portHint.classList.toggle("hint-warn", !valid && !blank);
-  portHint.textContent = valid || blank ? portHintText : `${event.target.value} is outside 1024–65535`;
+  portHint.textContent = valid || blank ? portHintText : `${event.target.value} is outside 1024 to 65535`;
   updateCreateReview();
 });
 

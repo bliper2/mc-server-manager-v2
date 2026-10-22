@@ -272,3 +272,21 @@ body.reduced-motion .nav-indicator { transition: none; }
   .roster-list { max-height: 220px; }
   .seg { align-self: stretch; overflow-x: auto; }
 }
+
+/* ===== Controls are rounded rectangles, not pills ===== */
+.filter-group, .map-dim-tabs { border-radius: var(--r-md); }
+.filter-pill, .dtab, .ram-preset, .chip, .target-chip, .badge, .dim-tab, .chip-update, .grim-chip, .filter-count, .logo-remove { border-radius: var(--r-sm); }
+
+/* ===== Icons ===== */
+.ico { width: 1em; height: 1em; flex: 0 0 auto; vertical-align: -.125em; }
+.mini-btn .ico, .btn .ico, .chip-update .ico, .stats .ico { width: 12px; height: 12px; margin-right: .3rem; }
+.mini-btn:not(:has(+ *)) .ico:only-child, .btn.small .ico:only-child, .mini-btn .ico:only-child { margin-right: 0; }
+.settings-symbol .ico { width: 16px; height: 16px; }
+.plugin-problem .ico { margin-right: .3rem; }
+.dirty-dot { display: inline-block; width: 7px; height: 7px; margin-left: var(--s2); background: var(--amber); border-radius: 50%; }
+.dirty-dot[hidden] { display: none; }
+.place-glyph .ico { width: 14px; height: 14px; }
+
+/* Accent swatches stay inside the card, and stacked tool cards use one gap */
+.accent-grid { grid-template-columns: repeat(auto-fill, 36px); justify-content: start; width: 100%; max-width: 100%; min-width: 0; }
+.seg-pane .panel-card + .panel-card { margin-top: 0; }

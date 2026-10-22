@@ -1,3 +1,20 @@
+// One stroke-icon set (16px grid, 1.6 stroke) for buttons that used to carry text glyphs.
+const ICON_PATHS = {
+  close: "M4 4l8 8M12 4l-8 8",
+  edit: "M3 13l1-3.5L11 2.5 13.5 5l-7 7L3 13z",
+  download: "M8 2.5v8M4.5 7.5L8 11l3.5-3.5M3 13.5h10",
+  up: "M8 13V3M4.5 6.5L8 3l3.5 3.5",
+  restore: "M3 8a5 5 0 1 0 1.6-3.7M3 2.5v3h3",
+  external: "M6 3.5H3.5v9h9V10M9 3h4v4M13 3L7.5 8.5",
+  warning: "M8 2.5l6 10.5H2L8 2.5zM8 6.5v3M8 11.2v.1",
+  marker: "M8 14s4.5-3.8 4.5-7.5a4.5 4.5 0 0 0-9 0C3.5 10.2 8 14 8 14zM8 8.2h.01",
+  gear: "M8 5.8a2.2 2.2 0 1 0 0 4.4 2.2 2.2 0 0 0 0-4.4zM8 1.8v2M8 12.2v2M1.8 8h2M12.2 8h2M3.6 3.6l1.4 1.4M11 11l1.4 1.4M3.6 12.4L5 11M11 5l1.4-1.4"
+};
+
+function icon(name) {
+  return `<svg class="ico" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${ICON_PATHS[name]}"/></svg>`;
+}
+
 // Shared state, settings, toasts, dialogs and small helpers used by every other file.
 
 // Any 401 from the API means the session ended (signed out, password reset, account removed).

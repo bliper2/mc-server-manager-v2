@@ -110,8 +110,8 @@ function renderServerSummary(servers) {
       </div>
       <div class="summary-pill hud-host" id="fleet-load">
         <span class="summary-label">This computer</span>
-        <div class="live-row"><span>CPU</span><i class="bar"><b data-host="cpu"></b></i><em data-host-val="cpu">—</em></div>
-        <div class="live-row ram"><span>RAM</span><i class="bar"><b data-host="ram"></b></i><em data-host-val="ram">—</em></div>
+        <div class="live-row"><span>CPU</span><i class="bar"><b data-host="cpu"></b></i><em data-host-val="cpu">n/a</em></div>
+        <div class="live-row ram"><span>RAM</span><i class="bar"><b data-host="ram"></b></i><em data-host-val="ram">n/a</em></div>
       </div>
     </div>
   `;
@@ -197,7 +197,7 @@ function serverCardHtml(s, i) {
         <div class="server-meta-grid">
           <div><span>RAM</span><strong>${formatRam(s.ram || 2048)}</strong></div>
           <div><span>Port</span><strong>${s.port || 25565}</strong></div>
-          <div><span>Players</span><strong data-slot="players">${s.running ? players : "—"}</strong></div>
+          <div><span>Players</span><strong data-slot="players">${s.running ? players : "n/a"}</strong></div>
         </div>
         <div class="card-live" data-live-for="${escapeHtml(s.id)}" data-ram-limit="${Number(s.ram) || 2048}" ${s.running ? "" : "hidden"}>
           <div class="live-row"><span>CPU</span><i class="bar"><b data-bar="cpu"></b></i><em data-val="cpu">-</em></div>
@@ -304,8 +304,8 @@ function paintHost(host) {
   const root = document.getElementById("fleet-load");
   if (!root || !host) return;
   root.classList.toggle("is-live", host.cpu != null || host.ram_percent != null);
-  paintMeter(root.querySelector('[data-host="cpu"]'), root.querySelector('[data-host-val="cpu"]'), host.cpu, host.cpu == null ? "—" : `${Math.round(host.cpu)}%`);
-  paintMeter(root.querySelector('[data-host="ram"]'), root.querySelector('[data-host-val="ram"]'), host.ram_percent, host.ram_percent == null ? "—" : `${Math.round(host.ram_percent)}%`);
+  paintMeter(root.querySelector('[data-host="cpu"]'), root.querySelector('[data-host-val="cpu"]'), host.cpu, host.cpu == null ? "n/a" : `${Math.round(host.cpu)}%`);
+  paintMeter(root.querySelector('[data-host="ram"]'), root.querySelector('[data-host-val="ram"]'), host.ram_percent, host.ram_percent == null ? "n/a" : `${Math.round(host.ram_percent)}%`);
 }
 
 function paintLiveCards(data) {
@@ -504,7 +504,7 @@ async function loadHostMemory() {
       preset.title = beyond ? "More memory than this machine has installed" : `Allocate ${preset.textContent} to the server`;
     });
     ramHint = data.total
-      ? `${formatRam(data.total)} installed, ${formatRam(data.available)} free right now. Leave 1–2 GB for the rest of the system.`
+      ? `${formatRam(data.total)} installed, ${formatRam(data.available)} free right now. Leave 1 to 2 GB for the rest of the system.`
       : "Installed memory could not be read. Pick an amount your machine can spare.";
   } catch {
     ramHint = "Installed memory could not be read. Pick an amount your machine can spare.";
@@ -531,7 +531,7 @@ function updateCreateReview() {
   const version = document.getElementById("create-version").value;
   document.getElementById("review-name").textContent = document.getElementById("create-name").value.trim() || "unnamed";
   document.getElementById("review-platform").textContent = `${document.getElementById("create-type").value}${version ? ` ${version}` : ""}`;
-  document.getElementById("review-port").textContent = document.getElementById("create-port").value || "—";
+  document.getElementById("review-port").textContent = document.getElementById("create-port").value || "n/a";
   document.getElementById("review-ram").textContent = formatRam(currentCreateRam());
   document.getElementById("review-slots").textContent = document.getElementById("create-max-players").value;
 }

@@ -71,7 +71,7 @@ function renderLogoGrid() {
   const size = pickerKind === "banner" ? 'width="240" height="80"' : 'width="64" height="64"';
   grid.innerHTML = shown.map(logo => `<div class="logo-tile">
       <button type="button" class="logo-pick" role="option" title="${escapeHtml(logo.name)}" onclick="chooseLogo(${jsArg(logo.ref)})"><img src="${escapeHtml(logo.url)}" alt="${escapeHtml(logo.name)}" ${size} loading="lazy" /></button>
-      ${logo.category === "mine" ? `<button type="button" class="logo-remove" data-perm="manage" title="Delete this file" aria-label="Delete ${escapeHtml(logo.name)}" onclick="removeLogo(${jsArg(logo.ref)})">✕</button>` : ""}
+      ${logo.category === "mine" ? `<button type="button" class="logo-remove" data-perm="manage" title="Delete this file" aria-label="Delete ${escapeHtml(logo.name)}" onclick="removeLogo(${jsArg(logo.ref)})" aria-label="Remove logo">${icon("close")}</button>` : ""}
     </div>`).join("");
 }
 

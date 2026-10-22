@@ -53,9 +53,9 @@ async function loadBackups() {
           ${backup.label ? `<small>${escapeHtml(backup.label)}</small>` : ""}
         </div>
         <div class="backup-item-actions">
-          <button class="btn small" onclick="downloadBackup(${jsArg(backup.name)})">↓ Download</button>
-          <button class="btn warning small" onclick="restoreBackup(this, ${jsArg(backup.name)})"${data.running ? " disabled title='Stop the server first'" : ""}>↺ Restore</button>
-          <button class="btn danger small" onclick="deleteBackup(this, ${jsArg(backup.name)})" title="Delete this backup">✕</button>
+          <button class="btn small" onclick="downloadBackup(${jsArg(backup.name)})">${icon("download")} Download</button>
+          <button class="btn warning small" onclick="restoreBackup(this, ${jsArg(backup.name)})"${data.running ? " disabled title='Stop the server first'" : ""}>${icon("restore")} Restore</button>
+          <button class="btn danger small" onclick="deleteBackup(this, ${jsArg(backup.name)})" title="Delete this backup" aria-label="Delete this backup">${icon("close")}</button>
         </div>
       </div>`).join("") : '<div class="empty">No backups yet. Create one before updating plugins or the server version.</div>';
   } catch (error) {
