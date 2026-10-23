@@ -367,16 +367,26 @@ textarea:focus-visible,
     gap: 0;
     overflow: visible;
   }
-  .sidebar .nav-btn {
+  .sidebar .nav-btn,
+  body.sidebar-collapsed .sidebar .nav-btn {
     flex-direction: column;
     justify-content: center;
     gap: .15rem;
     width: 100%;
-    padding: .45rem .2rem .55rem;
-    font-size: 11px;
+    padding: .45rem .15rem .5rem;
+    font-size: 10px;
     text-align: center;
   }
-  .sidebar .nav-btn span { display: block; }
+  .sidebar .nav-btn span,
+  body.sidebar-collapsed .sidebar .nav-btn span {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    font-size: 10px;
+    line-height: 1.2;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
   .sidebar .nav-btn.active::before {
     top: auto;
     bottom: 0;
