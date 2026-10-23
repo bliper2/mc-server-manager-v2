@@ -43,6 +43,15 @@ function consoleLineVisible(entry) {
   return !consoleQuery || entry.text.toLowerCase().includes(consoleQuery);
 }
 
+function rememberLastLog(lines) {
+  const node = document.getElementById("detail-last-log");
+  if (!node || !lines?.length) return;
+  const line = [...lines].reverse().find(text => text && String(text).trim());
+  if (!line) return;
+  node.textContent = line.length > 96 ? `${line.slice(0, 95)}…` : line;
+  node.hidden = false;
+}
+
 function appendConsoleLines(out, lines) {
   const fragment = document.createDocumentFragment();
   lines.forEach(text => {
@@ -55,6 +64,7 @@ function appendConsoleLines(out, lines) {
     fragment.append(row);
   });
   out.appendChild(fragment);
+  rememberLastLog(lines);
   consoleLineCount = consoleBuffer.length;
   // Keep memory and the DOM bounded: a busy server prints thousands of lines an hour.
   if (consoleBuffer.length > CONSOLE_MAX_LINES) {

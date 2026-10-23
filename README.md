@@ -53,7 +53,8 @@ Open `http://127.0.0.1:5000/` after the server starts.
 - 36 accent colours, each tuned for the dark and the light themes
 - Live map of online players with a moderation drawer, over RCON
 - Self-update from the GitHub repo, with a snapshot and rollback
-- 37 themes, seven fonts, density, refresh, and confirmation settings
+- The server list is one row per world: banner, version, port, who is online, and memory in use. The address bar names the screen you are on.
+- 37 themes and eight fonts, with the extra looks kept under Settings. Density, refresh, and confirmation settings stay there too.
 - Optional animated 3D backdrop and a server core that reacts to player count
 - Commands Wiki with searchable Minecraft command examples
 

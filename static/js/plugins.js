@@ -392,6 +392,7 @@ function onTargetServerChange() {
   if (target && !kind) {
     note.textContent = `${target.name} is a ${target.type || "vanilla"} server: it cannot load plugins or mods. Use Paper, Purpur, Fabric, Forge or NeoForge.`;
     note.hidden = false;
+    paintCatalogLocal();
     return;
   }
   note.hidden = !target;
@@ -401,6 +402,47 @@ function onTargetServerChange() {
     syncSearchType();
     loadFeatured();
     if (document.getElementById("search-q").value.trim()) searchModrinth();
+  }
+  paintCatalogLocal();
+}
+
+function filterCatalogSections() {
+  const target = selectedTarget();
+  const kind = target ? addonKind(target.type) : "";
+  document.querySelectorAll("[data-catalog]").forEach(section => {
+    const which = section.dataset.catalog;
+    if (!target || !kind) { section.hidden = false; return; }
+    if (which === "plugin") section.hidden = kind !== "plugin";
+    else if (which === "mod") section.hidden = kind !== "mod";
+    else section.hidden = false;
+  });
+}
+
+async function paintCatalogLocal() {
+  const box = document.getElementById("catalog-local");
+  if (!box) return;
+  filterCatalogSections();
+  const target = selectedTarget();
+  const kind = target ? addonKind(target.type) : "";
+  if (!target || !kind) { box.hidden = true; box.innerHTML = ""; return; }
+  const folder = kind === "mod" ? "mods" : "plugins";
+  try {
+    const [files, report] = await Promise.all([
+      requestJson(`/api/server/${encodeURIComponent(target.id)}/files?folder=${folder}`),
+      requestJson(`/api/server/${encodeURIComponent(target.id)}/auto-update`)
+    ]);
+    const waiting = report.report?.waiting || [];
+    const jars = (Array.isArray(files) ? files : []).filter(file => /\.jar(\.disabled)?$/i.test(file.name || ""));
+    const items = [
+      ...waiting.map(label => `<li><span>${escapeHtml(label)}</span><em>waiting</em></li>`),
+      ...jars.map(file => `<li><span>${escapeHtml(file.name)}</span><em>${file.enabled === false ? "off" : "installed"}</em></li>`)
+    ];
+    box.hidden = false;
+    box.innerHTML = items.length
+      ? `<h2>On ${escapeHtml(target.name)}</h2><ul class="catalog-jars">${items.join("")}</ul>`
+      : `<h2>On ${escapeHtml(target.name)}</h2><p class="hint">No ${folder} yet. The lists below are ${LOADER_NAMES[target.type] || "add-ons"}.</p>`;
+  } catch {
+    box.hidden = true;
   }
 }
 

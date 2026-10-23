@@ -5,21 +5,23 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="author" content="Mrkraps aka orgeco" />
   <meta name="robots" content="noindex" />
+  <meta name="theme-color" content="#171719" />
+  <meta name="color-scheme" content="dark" />
   <title>Sign in · MC Server Manager</title>
   <link rel="icon" id="favicon" type="image/png" href="/static/img/favicon.png?v={{ asset }}" />
   <link rel="apple-touch-icon" href="/static/img/apple-touch-icon.png?v={{ asset }}" />
   <link rel="stylesheet" href="/static/css/themes.css?v={{ asset }}" />
   <link rel="stylesheet" href="/static/css/app.css?v={{ asset }}" />
   <link rel="stylesheet" href="/static/css/design.css?v={{ asset }}" />
-  <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=Geist:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&family=Space+Mono:wght@400;700&family=Press+Start+2P&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/face.css?v={{ asset }}" />
+  <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 </head>
-<body class="login-body" data-state="{{ state }}">
-  <div class="ambient-aurora" aria-hidden="true"><span></span><span></span><span></span></div>
+<body class="login-body" data-theme="control" data-state="{{ state }}">
   <main class="login-shell">
     <section class="login-card" aria-labelledby="login-title">
       <div class="login-brand">
         <img class="logo-icon logo-image" src="/static/img/logo.png?v={{ asset }}" alt="MC Server Manager" width="42" height="42" />
-        <div><strong>MC Manager</strong><small>v2 &middot; control center</small></div>
+        <div><strong>MC Manager</strong><small>v{{ version }}</small></div>
       </div>
 
       {% if state == "remote" %}

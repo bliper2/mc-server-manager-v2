@@ -207,22 +207,23 @@
  @media (max-width: 700px) { .featured-grid { grid-template-columns: 1fr; } }
  @media (max-width: 560px) { .featured-heading { align-items: flex-start; flex-direction: column; gap: .25rem; } .featured-item .btn { padding-inline: .5rem; } }
 :root {
-  --bg: #09090b;
-  --surface: #131316;
-  --surface-raised: #17171b;
-  --surface-hover: #1f1f24;
-  --line: #27272a;
-  --text: #f4f4f5;
-  --muted: #9ca3af;
-  --green: #a3e635;
-  --green-dark: #84cc16;
+  --bg: #171719;
+  --surface: #131217;
+  --surface-raised: #212023;
+  --surface-hover: #212023;
+  --line: #222224;
+  --text: #ffffff;
+  --muted: #8a8c92;
+  --green: #5f8f3a;
+  --green-dark: #4a7030;
+  --positive: #44a282;
   --blue: #8ec8ff;
-  --red: #ff766d;
-  --amber: #f4bb52;
+  --red: #e5566f;
+  --amber: #d9a441;
   --radius: 6px;
   --on-accent: #0e1011;
-  --font: 'DM Sans', system-ui, sans-serif;
-  --mono: 'Space Mono', monospace;
+  --font: 'Public Sans', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
   --pixel: 'Press Start 2P', monospace;
   --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%239aa59a' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }

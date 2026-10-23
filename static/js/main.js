@@ -7,13 +7,13 @@ document.querySelectorAll(".nav-btn").forEach(btn => {
 document.getElementById("server-filter").addEventListener("click", event => {
   const btn = event.target.closest(".filter-pill");
   if (!btn || btn.dataset.filter === serverFilter) return;
-  serverFilter = btn.dataset.filter;
-  document.querySelectorAll("#server-filter .filter-pill").forEach(p => p.classList.toggle("active", p === btn));
+  setServerFilter(btn.dataset.filter);
   repaintServers();
+  publishHash();
 });
 
 document.getElementById("servers-list").addEventListener("keydown", event => {
-  if ((event.key === "Enter" || event.key === " ") && event.target.classList?.contains("server-card")) {
+  if ((event.key === "Enter" || event.key === " ") && event.target.classList?.contains("world-row")) {
     event.preventDefault();
     event.target.click();
   }
@@ -64,6 +64,7 @@ document.querySelectorAll(".dtab").forEach(btn => {
     document.querySelectorAll(".dtab-panel").forEach(p => p.classList.remove("active"));
     btn.classList.add("active");
     document.getElementById("dtab-" + btn.dataset.dtab).classList.add("active");
+    syncWorldTabs(btn.dataset.dtab);
     if (btn.dataset.dtab === "players") loadPlayers();
     if (btn.dataset.dtab === "commands") loadCommandWiki();
     if (btn.dataset.dtab === "files") loadFs();
@@ -73,6 +74,16 @@ document.querySelectorAll(".dtab").forEach(btn => {
     if (btn.dataset.dtab === "plugins") { loadPluginMods(); loadPluginConfigs(); loadAutoUpdate(); }
     if (btn.dataset.dtab === "automation") loadAutomation();
     if (btn.dataset.dtab === "activity") loadActivity();
+    rememberView("detail");
+    publishHash();
+  });
+});
+
+document.querySelectorAll(".world-tab").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const group = btn.dataset.group;
+    const name = lastDetailTab[group] || DETAIL_FIRST[group];
+    document.querySelector(`.dtab[data-dtab="${name}"]`)?.click();
   });
 });
 
@@ -133,4 +144,5 @@ pollStats();
 setInterval(pollStats, 3000);
 startBootWatcher();
 restoreView();
+window.addEventListener("popstate", () => applyHash());
 resumeModpackInstall();

@@ -1,8 +1,10 @@
 """Live CPU and memory numbers for running servers and the host."""
 
 import os
+import shutil
 import time
 
+from .config import DATA_DIR
 from .state import active_players, running_servers, started_at
 from .store import is_running
 from .util import psutil
@@ -17,7 +19,8 @@ def collect() -> dict:
     for sid, process in list(running_servers.items()):
         if not is_running(sid):
             continue
-        entry = {"uptime": int(now - started_at.get(sid, now)), "cpu": None, "ram_mb": None, "threads": None, "players": len(active_players.get(sid, []))}
+        names = [str(name) for name in active_players.get(sid, [])][:12]
+        entry = {"uptime": int(now - started_at.get(sid, now)), "cpu": None, "ram_mb": None, "threads": None, "players": len(active_players.get(sid, [])), "player_names": names}
         if psutil is not None:
             try:
                 handle = _tracked.get(process.pid) or psutil.Process(process.pid)
@@ -31,7 +34,14 @@ def collect() -> dict:
         servers[sid] = entry
     for pid in [pid for pid in _tracked if pid not in {p.pid for p in running_servers.values()}]:
         _tracked.pop(pid, None)
-    host = {"cpu": None, "ram_percent": None, "ram_used_mb": None, "ram_total_mb": None}
+    disk_percent = None
+    try:
+        usage = shutil.disk_usage(DATA_DIR)
+        if usage.total:
+            disk_percent = round((usage.total - usage.free) * 100 / usage.total, 1)
+    except OSError:
+        disk_percent = None
+    host = {"cpu": None, "ram_percent": None, "ram_used_mb": None, "ram_total_mb": None, "disk_percent": disk_percent}
     if psutil is not None:
         try:
             memory = psutil.virtual_memory()
@@ -40,6 +50,7 @@ def collect() -> dict:
                 "ram_percent": memory.percent,
                 "ram_used_mb": round((memory.total - memory.available) / 1048576),
                 "ram_total_mb": round(memory.total / 1048576),
+                "disk_percent": disk_percent,
             }
         except psutil.Error:
             pass
