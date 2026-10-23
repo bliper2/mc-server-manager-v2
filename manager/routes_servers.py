@@ -57,7 +57,9 @@ def api_server_activity(sid):
 def api_servers():
     servers = list_servers()
     for server in servers:
+        names = [str(name) for name in active_players.get(server["id"], [])][:12] if server["running"] else []
         server["players"] = len(active_players.get(server["id"], [])) if server["running"] else 0
+        server["player_names"] = names
         server.pop("playit_secret", None)  # secrets stay on the server; the panel has its own endpoints that only say whether one is set
         if isinstance(server.get("rcon"), dict):
             server["rcon"] = {key: value for key, value in server["rcon"].items() if key != "password"}

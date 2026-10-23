@@ -58,64 +58,36 @@ function countNodes(root) {
   return [...root.querySelectorAll("[data-count-to]")];
 }
 
+function findingLine(servers) {
+  if (!servers.length) return "No worlds yet.";
+  const running = servers.filter(server => server.running);
+  const players = serverPlayerTotal(servers);
+  const playerText = players === 1 ? "1 player" : `${players} players`;
+  let longest = "";
+  if (lastStats?.servers) {
+    let best = null;
+    running.forEach(server => {
+      const up = lastStats.servers[server.id]?.uptime;
+      if (up != null && (best == null || up > best.up)) best = { name: server.name, up };
+    });
+    if (best) longest = ` · ${best.name} has been up ${formatUptime(best.up)}`;
+  }
+  return `${running.length ? `${running.length} running` : "None running"} · ${playerText}${longest}`;
+}
+
 function renderServerSummary(servers) {
+  const finding = document.getElementById("server-finding");
+  if (finding) finding.textContent = findingLine(servers);
   const summary = document.getElementById("server-summary");
   if (!summary) return;
-  const total = servers.length;
-  const online = servers.filter(s => s.running).length;
-  const offline = total - online;
-  const players = serverPlayerTotal(servers);
-  const totalRam = servers.reduce((sum, s) => sum + (Number(s.ram) || 2048), 0);
-  const ratio = total ? online / total : 0;
-  const structure = [total, online, totalRam].join("|");
-  const playerNode = summary.querySelector("[data-fleet='players']");
-  if (summary.querySelector(".fleet-hud") && structure === summaryKey && playerNode) {
-    if (Number(playerNode.dataset.countTo) !== players) {
-      playerNode.dataset.countTo = String(players);
-      animateCounts(playerNode);
-    }
-    const caption = summary.querySelector("[data-fleet='player-caption']");
-    if (caption) caption.textContent = online ? "on running servers" : "no servers running";
-    return;
+  if (!summary.querySelector(".host-strip")) {
+    summary.innerHTML = `
+      <div class="host-strip" id="fleet-load">
+        <div class="host-meter"><span>CPU</span><i class="bar"><b data-host="cpu"></b></i><em data-host-val="cpu">…</em></div>
+        <div class="host-meter"><span>Memory</span><i class="bar"><b data-host="ram"></b></i><em data-host-val="ram">…</em></div>
+        <div class="host-meter"><span>Disk</span><i class="bar"><b data-host="disk"></b></i><em data-host-val="disk">…</em></div>
+      </div>`;
   }
-  summaryKey = structure;
-  const ring = 94.25;
-  summary.innerHTML = `
-    <div class="fleet-hud">
-      <div class="hud-gauge" role="img" aria-label="${online} of ${total} servers online">
-        <svg viewBox="0 0 36 36" class="hud-ring" aria-hidden="true">
-          <circle class="hud-ring-track" cx="18" cy="18" r="15"></circle>
-          <circle class="hud-ring-value" cx="18" cy="18" r="15" style="stroke-dasharray:${ring};stroke-dashoffset:${(1 - ratio) * ring}"></circle>
-        </svg>
-        <div class="hud-gauge-copy">
-          <span class="summary-label">Fleet</span>
-          <strong><span data-count-to="${online}">0</span><small>/${total}</small></strong>
-          <em>${total ? Math.round(ratio * 100) : 0}% running</em>
-        </div>
-      </div>
-      <div class="summary-pill online-pill">
-        <span class="summary-label">Players</span>
-        <strong data-count-to="${players}" data-fleet="players">0</strong>
-        <em data-fleet="player-caption">${online ? "on running servers" : "no servers running"}</em>
-      </div>
-      <div class="summary-pill">
-        <span class="summary-label">Memory reserved</span>
-        <strong>${formatRam(totalRam)}</strong>
-        <em>${total ? `across ${total} server${total === 1 ? "" : "s"}` : "nothing allocated"}</em>
-      </div>
-      <div class="summary-pill${offline ? " idle-pill" : ""}">
-        <span class="summary-label">Stopped</span>
-        <strong data-count-to="${offline}">0</strong>
-        <em>${offline ? "ready to start" : "everything is up"}</em>
-      </div>
-      <div class="summary-pill hud-host" id="fleet-load">
-        <span class="summary-label">This computer</span>
-        <div class="live-row"><span>CPU</span><i class="bar"><b data-host="cpu"></b></i><em data-host-val="cpu">n/a</em></div>
-        <div class="live-row ram"><span>RAM</span><i class="bar"><b data-host="ram"></b></i><em data-host-val="ram">n/a</em></div>
-      </div>
-    </div>
-  `;
-  animateCounts(summary);
   if (lastStats) paintHost(lastStats.host);
 }
 
@@ -163,51 +135,45 @@ function sortServers(list) {
   return [...list].sort(sorters[serverSort]);
 }
 
-function serverCardHtml(s, i) {
+function namesLine(names) {
+  const list = (names || []).map(name => String(name)).filter(Boolean);
+  if (!list.length) return "No one online";
+  const shown = list.slice(0, 3).join(", ");
+  const extra = list.length - 3;
+  return extra > 0 ? `${shown} +${extra}` : shown;
+}
+
+function formatRamPair(used, limitMb) {
+  const limit = Number(limitMb) || 2048;
+  const figures = value => (value / 1024).toFixed(1);
+  if (limit < 1024) return used == null ? `… of ${Math.round(limit)} MB` : `${Math.round(used)} of ${Math.round(limit)} MB`;
+  return used == null ? `… of ${figures(limit)} GB` : `${figures(used)} of ${figures(limit)} GB`;
+}
+
+function setServerFilter(filter) {
+  if (!["all", "online", "offline"].includes(filter)) return;
+  serverFilter = filter;
+  document.querySelectorAll("#server-filter .filter-pill").forEach(pill => pill.classList.toggle("active", pill.dataset.filter === filter));
+}
+
+function serverCardHtml(s) {
   const id = jsArg(s.id);
-  const logo = s.logo?.file
-    ? `<img class="server-avatar server-avatar-image" src="/api/server/${encodeURIComponent(s.id)}/logo/${encodeURIComponent(s.logo.file)}?v=${s.logo.rev || 0}" alt="" />`
-    : `<div class="server-avatar ${escapeHtml(s.logo?.style || "avatar-lime")}" aria-hidden="true">${escapeHtml(s.logo?.mark || s.name.slice(0, 2).toUpperCase())}</div>`;
   const banner = s.banner?.file
-    ? `<img class="server-card-banner" src="/api/server/${encodeURIComponent(s.id)}/banner/${encodeURIComponent(s.banner.file)}?v=${s.banner.rev || 0}" alt="" loading="lazy" />`
+    ? `<img src="/api/server/${encodeURIComponent(s.id)}/banner/${encodeURIComponent(s.banner.file)}?v=${s.banner.rev || 0}" alt="" />`
     : "";
-  const power = s.running
-    ? '<svg viewBox="0 0 16 16" fill="currentColor" stroke="none"><rect x="3.5" y="3.5" width="9" height="9" rx="1.5"/></svg> Stop'
-    : '<svg viewBox="0 0 16 16" fill="currentColor" stroke="none"><path d="M4 2.5v11l9-5.5-9-5.5z"/></svg> Start';
-  const players = Number(s.players) || 0;
-  const tunnel = s.playit_running ? `<span class="badge tunnel" title="Playit tunnel is running">Tunnel</span>` : "";
-  const added = relativeTime(s.created);
+  const who = s.running ? namesLine(s.player_names) : "Stopped";
+  const action = s.running
+    ? `<button class="btn small" type="button" onclick="event.stopPropagation(); openServer(${id})">Console</button>`
+    : `<button class="btn small" type="button" onclick="event.stopPropagation(); togglePowerFromCard(this, ${id}, false)">Start</button>`;
   return `
-      <div class="server-card ${s.running ? "online" : "offline"}" style="--i:${i}" tabindex="0" role="button" aria-label="Open ${escapeHtml(s.name)}" onclick="openServer(${id})">
-        ${banner}
-        <div class="card-top">
-          <div class="server-name-line">${logo}<h3>${escapeHtml(s.name)}</h3></div>
-          <div class="server-status">
-            <span class="status-dot ${s.running ? "online" : "offline"}"></span>
-            <span class="badge ${s.running ? "online" : "offline"}">${s.running ? "Online" : "Offline"}</span>
-          </div>
-        </div>
-        <div class="meta">
-          <span class="badge type">${escapeHtml(s.type)} ${escapeHtml(s.version)}</span>
-          ${tunnel}
-          ${s.running ? `<span class="badge players" title="Players online">${players} playing</span>` : ""}
-          <span class="server-ping${s.running ? "" : " is-idle"}" data-ping-for="${escapeHtml(s.id)}">${s.running ? "…" : "stopped"}</span>
-          <span class="server-age" title="${escapeHtml(s.created || "")}">${escapeHtml(added)}</span>
-        </div>
-        <div class="server-meta-grid">
-          <div><span>RAM</span><strong>${formatRam(s.ram || 2048)}</strong></div>
-          <div><span>Port</span><strong>${s.port || 25565}</strong></div>
-          <div><span>Players</span><strong data-slot="players">${s.running ? players : "n/a"}</strong></div>
-        </div>
-        <div class="card-live" data-live-for="${escapeHtml(s.id)}" data-ram-limit="${Number(s.ram) || 2048}" ${s.running ? "" : "hidden"}>
-          <div class="live-row"><span>CPU</span><i class="bar"><b data-bar="cpu"></b></i><em data-val="cpu">-</em></div>
-          <div class="live-row ram"><span>RAM</span><i class="bar"><b data-bar="ram"></b></i><em data-val="ram">-</em></div>
-        </div>
-        <div class="card-actions">
-          <button class="mini-btn ${s.running ? "" : "success"}" onclick="event.stopPropagation(); togglePowerFromCard(this, ${id}, ${s.running})">${power}</button>
-          <button class="mini-btn danger" onclick="event.stopPropagation(); deleteServerFromCard(this, ${id})">Delete</button>
-        </div>
-      </div>`;
+      <article class="world-row ${s.running ? "is-running" : ""}" tabindex="0" aria-label="Open ${escapeHtml(s.name)}" onclick="openServer(${id})">
+        <div class="world-banner">${banner}</div>
+        <div class="world-name"><strong>${escapeHtml(s.name)}</strong><span>${escapeHtml(s.type)} ${escapeHtml(s.version)}</span></div>
+        <div class="world-port"><span>${s.port || 25565}</span><span class="world-ping${s.running ? "" : " is-idle"}" data-ping-for="${escapeHtml(s.id)}">${s.running ? "…" : ""}</span></div>
+        <div class="world-who" data-slot="who">${escapeHtml(who)}</div>
+        <div class="world-ram${s.running ? "" : " is-idle"}" ${s.running ? `data-live-for="${escapeHtml(s.id)}" data-ram-limit="${Number(s.ram) || 2048}"` : ""}><span data-val="ram">${s.running ? formatRamPair(null, s.ram || 2048) : formatRam(s.ram || 2048)}</span><i class="bar" hidden><b data-bar="ram"></b></i></div>
+        ${action}
+      </article>`;
 }
 
 function updateFilterCounts(queried) {
@@ -267,7 +233,7 @@ async function loadServers() {
   const el = document.getElementById("servers-list");
   if (!el) return;
   // Show placeholders only when there is nothing on screen yet; background refreshes swap content silently.
-  if (!serversHtml) el.innerHTML = '<div class="skeleton-card"></div><div class="skeleton-card"></div><div class="skeleton-card"></div>';
+  if (!serversHtml) el.innerHTML = '<div class="loading">Loading…</div>';
   try {
     const res = await fetch("/api/servers");
     if (!res.ok) throw new Error("Failed to load servers");
@@ -303,35 +269,32 @@ function paintMeter(bar, label, percent, text) {
 function paintHost(host) {
   const root = document.getElementById("fleet-load");
   if (!root || !host) return;
-  root.classList.toggle("is-live", host.cpu != null || host.ram_percent != null);
-  paintMeter(root.querySelector('[data-host="cpu"]'), root.querySelector('[data-host-val="cpu"]'), host.cpu, host.cpu == null ? "n/a" : `${Math.round(host.cpu)}%`);
-  paintMeter(root.querySelector('[data-host="ram"]'), root.querySelector('[data-host-val="ram"]'), host.ram_percent, host.ram_percent == null ? "n/a" : `${Math.round(host.ram_percent)}%`);
+  root.classList.toggle("is-live", host.cpu != null || host.ram_percent != null || host.disk_percent != null);
+  paintMeter(root.querySelector('[data-host="cpu"]'), root.querySelector('[data-host-val="cpu"]'), host.cpu, host.cpu == null ? "…" : `${Math.round(host.cpu)}%`);
+  paintMeter(root.querySelector('[data-host="ram"]'), root.querySelector('[data-host-val="ram"]'), host.ram_percent, host.ram_percent == null ? "…" : `${Math.round(host.ram_percent)}%`);
+  paintMeter(root.querySelector('[data-host="disk"]'), root.querySelector('[data-host-val="disk"]'), host.disk_percent, host.disk_percent == null ? "…" : `${Math.round(host.disk_percent)}%`);
 }
 
 function paintLiveCards(data) {
   if (!data?.servers) return;
-  document.querySelectorAll(".card-live").forEach(card => {
+  document.querySelectorAll("[data-live-for]").forEach(card => {
     const stat = data.servers[card.dataset.liveFor];
-    card.hidden = !stat;
     if (!stat) return;
     const limit = Number(card.dataset.ramLimit) || 2048;
     const ramPct = limit ? ((stat.ram_mb ?? 0) / limit) * 100 : 0;
-    paintMeter(card.querySelector('[data-bar="cpu"]'), card.querySelector('[data-val="cpu"]'), stat.cpu, stat.cpu == null ? "-" : `${stat.cpu}%`);
-    paintMeter(card.querySelector('[data-bar="ram"]'), card.querySelector('[data-val="ram"]'), stat.ram_mb == null ? null : ramPct, stat.ram_mb == null ? "-" : formatRam(stat.ram_mb));
+    const label = card.querySelector("[data-val='ram']");
+    paintMeter(card.querySelector('[data-bar="ram"]'), label, stat.ram_mb == null ? null : ramPct, formatRamPair(stat.ram_mb, limit));
+    card.classList.toggle("is-hot", stat.ram_mb != null && ramPct >= 90);
     const server = knownServers.find(item => item.id === card.dataset.liveFor);
     if (server && stat.players != null) server.players = stat.players;
-    const slot = card.parentElement?.querySelector("[data-slot='players']");
-    if (slot && stat.players != null) slot.textContent = String(stat.players);
-    const chip = card.parentElement?.querySelector(".badge.players");
-    if (chip && stat.players != null) chip.textContent = `${stat.players} playing`;
+    if (server && stat.player_names) server.player_names = stat.player_names;
+    const who = card.parentElement?.querySelector("[data-slot='who']");
+    if (who && stat.player_names) who.textContent = namesLine(stat.player_names);
   });
   if (knownServers.length) {
     livePlayerTotal = knownServers.reduce((sum, server) => sum + (server.running ? Number(server.players) || 0 : 0), 0);
-    const node = document.querySelector("[data-fleet='players']");
-    if (node && Number(node.dataset.countTo) !== livePlayerTotal) {
-      node.dataset.countTo = String(livePlayerTotal);
-      animateCounts(node);
-    }
+    const finding = document.getElementById("server-finding");
+    if (finding) finding.textContent = findingLine(knownServers);
   }
   updateDetailStats(data.servers[currentServerId]);
   paintHost(data.host);
@@ -531,9 +494,30 @@ function updateCreateReview() {
   const version = document.getElementById("create-version").value;
   document.getElementById("review-name").textContent = document.getElementById("create-name").value.trim() || "unnamed";
   document.getElementById("review-platform").textContent = `${document.getElementById("create-type").value}${version ? ` ${version}` : ""}`;
-  document.getElementById("review-port").textContent = document.getElementById("create-port").value || "n/a";
+  document.getElementById("review-port").textContent = document.getElementById("create-port").value || "…";
   document.getElementById("review-ram").textContent = formatRam(currentCreateRam());
   document.getElementById("review-slots").textContent = document.getElementById("create-max-players").value;
+  paintVersionJava(version);
+}
+
+let versionJavaToken = 0;
+
+async function paintVersionJava(version) {
+  const hint = document.getElementById("version-java");
+  if (!hint) return;
+  const token = ++versionJavaToken;
+  if (!version) { hint.textContent = ""; hint.classList.remove("hint-warn"); return; }
+  try {
+    const data = await requestJson(`/api/java?version=${encodeURIComponent(version)}`);
+    if (token !== versionJavaToken) return;
+    if (data.required == null) { hint.textContent = ""; hint.classList.remove("hint-warn"); return; }
+    hint.classList.toggle("hint-warn", !data.ok);
+    if (data.ok) hint.textContent = `Java ${data.major} on this PC can run it. This version needs Java ${data.required}.`;
+    else if (data.found) hint.textContent = `This version needs Java ${data.required}. This PC has Java ${data.major}.`;
+    else hint.textContent = `This version needs Java ${data.required}. No Java was found on this PC.`;
+  } catch {
+    if (token === versionJavaToken) hint.textContent = "";
+  }
 }
 
 async function createServer() {

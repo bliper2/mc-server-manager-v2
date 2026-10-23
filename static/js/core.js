@@ -78,15 +78,37 @@ function can(permission) {
 const OWNER_WATERMARK = "MC-SERVER-MANAGER / Mrkraps aka orgeco";
 
 const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-const defaultSettings = { theme: "control", font: "public", accent: "blue", density: "comfortable", motion: !prefersReducedMotion, confirmActions: true, autoRefresh: true, refreshInterval: "30", autoPing: true, pingInterval: "5", consoleAutoRefresh: true, backdrop3d: false };
+const defaultSettings = { theme: "control", font: "public", accent: "lime", density: "comfortable", motion: !prefersReducedMotion, confirmActions: true, autoRefresh: true, refreshInterval: "30", autoPing: true, pingInterval: "5", consoleAutoRefresh: true, backdrop3d: false };
 
 function getSettings() {
   try { return { ...defaultSettings, ...JSON.parse(localStorage.getItem("mc-manager-settings") || "{}") }; }
   catch { return { ...defaultSettings }; }
 }
 
+const EXTRA_FONTS = {
+  geist: "Geist:wght@400;500;600;700",
+  dm: "DM+Sans:wght@400;500;600;700",
+  manrope: "Manrope:wght@400;500;600;700;800",
+  space: "Space+Grotesk:wght@400;500;600;700",
+  rajdhani: "Rajdhani:wght@400;500;600;700",
+  orbitron: "Orbitron:wght@500;600;700;800",
+  pixel: "Press+Start+2P",
+  terminal: "VT323"
+};
+
+function ensureFont(font) {
+  const spec = EXTRA_FONTS[font];
+  if (!spec || document.getElementById(`font-${font}`)) return;
+  const link = document.createElement("link");
+  link.id = `font-${font}`;
+  link.rel = "stylesheet";
+  link.href = `https://fonts.googleapis.com/css2?family=${spec}&display=swap`;
+  document.head.appendChild(link);
+}
+
 function applySettings() {
   const settings = getSettings();
+  ensureFont(settings.font);
   document.body.dataset.accent = settings.accent;
   document.body.dataset.theme = settings.theme === "auto"
     ? (window.matchMedia?.("(prefers-color-scheme: light)").matches ? "light" : "control")
@@ -102,6 +124,8 @@ function applySettings() {
     else if (value !== undefined) input.value = value;
   });
   renderAccentPicker(settings.accent);
+  const themeMeta = document.querySelector('meta[name="theme-color"]');
+  if (themeMeta) themeMeta.content = ["light", "linen", "daylight", "frost", "solar"].includes(document.body.dataset.theme) ? "#f7f4ee" : "#171719";
   if (settingsRefreshTimer) clearInterval(settingsRefreshTimer);
   settingsRefreshTimer = settings.autoRefresh ? setInterval(() => {
     if (document.getElementById("tab-servers")?.classList.contains("active")) loadServers();
@@ -261,18 +285,74 @@ async function requestJson(url, options = {}) {
 }
 
 function rememberView(name) {
-  try { localStorage.setItem("mc-manager-view", JSON.stringify({ tab: name, server: name === "detail" ? currentServerId : null })); } catch {}
+  try { sessionStorage.setItem("mc-manager-view", JSON.stringify({ tab: name, server: name === "detail" ? currentServerId : null, dtab: document.querySelector(".dtab.active")?.dataset.dtab || null })); } catch {}
+}
+
+let applyingHash = false;
+let hashMode = "replace";
+
+function parseHash(hash = location.hash) {
+  const raw = decodeURIComponent(String(hash || "").replace(/^#/, ""));
+  const server = raw.match(/^server\/([^/]+)(?:\/([a-z]+))?$/);
+  if (server) return { tab: "detail", id: server[1], dtab: server[2] || "console" };
+  const listed = raw.match(/^servers(?:\/(running|stopped|all))?$/);
+  if (listed || raw === "") {
+    const filters = { running: "online", stopped: "offline", all: "all" };
+    return { tab: "servers", filter: filters[listed?.[1]] || "all" };
+  }
+  const tabs = { create: "create", map: "map", addons: "browser", browser: "browser", settings: "settings", staff: "staff" };
+  if (tabs[raw]) return { tab: tabs[raw] };
+  return null;
+}
+
+function publishHash() {
+  if (applyingHash) return;
+  const tab = document.querySelector(".tab.active")?.id?.replace(/^tab-/, "") || "servers";
+  let hash = tab === "browser" ? "addons" : tab;
+  if (tab === "servers") {
+    hash = serverFilter === "online" ? "servers/running" : serverFilter === "offline" ? "servers/stopped" : "servers";
+  }
+  if (tab === "detail" && currentServerId) {
+    const dtab = document.querySelector(".dtab.active")?.dataset.dtab || "console";
+    hash = `server/${encodeURIComponent(currentServerId)}/${dtab}`;
+  }
+  const next = `#${hash}`;
+  if (location.hash === next) return;
+  if (hashMode === "push") history.pushState(null, "", next);
+  else history.replaceState(null, "", next);
+}
+
+function applyHash() {
+  const view = parseHash();
+  if (!view) return false;
+  const target = document.getElementById(`tab-${view.tab}`);
+  if (!target || (target.hasAttribute("data-owner-only") && !IS_OWNER)) return false;
+  if (view.tab === "create" && !can("manage")) return false;
+  applyingHash = true;
+  try {
+    if (view.filter) setServerFilter(view.filter);
+    if (view.tab === "detail" && view.id) openServer(view.id, view.dtab || "console");
+    else switchTab(view.tab);
+  } finally {
+    applyingHash = false;
+  }
+  return true;
 }
 
 // After a reload (new version, F5) put the user back where they were.
 function restoreView() {
+  if (location.hash.length > 1 && applyHash()) { hashMode = "push"; return; }
   let view = null;
-  try { view = JSON.parse(localStorage.getItem("mc-manager-view") || "null"); } catch {}
-  if (!view || view.tab === "servers") return;
-  const target = document.getElementById(`tab-${view.tab}`);
-  if (!target || (target.hasAttribute("data-owner-only") && !IS_OWNER)) return;
-  if (view.tab === "detail" && view.server) openServer(view.server);
-  else if (document.getElementById(`tab-${view.tab}`)) switchTab(view.tab);
+  try { view = JSON.parse(sessionStorage.getItem("mc-manager-view") || "null"); } catch {}
+  if (view && view.tab && view.tab !== "servers") {
+    const target = document.getElementById(`tab-${view.tab}`);
+    if (target && !(target.hasAttribute("data-owner-only") && !IS_OWNER)) {
+      if (view.tab === "detail" && view.server) openServer(view.server, view.dtab || "console");
+      else switchTab(view.tab);
+    }
+  }
+  publishHash();
+  hashMode = "push";
 }
 
 function switchTab(name) {
@@ -295,6 +375,7 @@ function switchTab(name) {
     loadServerSelect();
     loadFeatured();
   }
+  publishHash();
 }
 
 function formatBytes(bytes) {
@@ -375,7 +456,7 @@ function updateTitle(online) {
   const context = canvas.getContext("2d");
   context.drawImage(faviconBase, 0, 0, 64, 64);
   if (online) {
-    context.fillStyle = "#a3e635";
+    context.fillStyle = "#5f8f3a";
     context.strokeStyle = "#0b0b0e";
     context.lineWidth = 5;
     context.beginPath();

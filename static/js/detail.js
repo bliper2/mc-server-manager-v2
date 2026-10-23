@@ -1,6 +1,35 @@
 // The server detail page: header actions, tabs, players, Playit and the command wiki.
 
-async function openServer(id) {
+const DETAIL_GROUP = {
+  console: "console",
+  commands: "console",
+  players: "players",
+  files: "world",
+  props: "world",
+  backups: "world",
+  plugins: "addons",
+  anticheat: "addons",
+  automation: "schedule",
+  activity: "schedule"
+};
+const DETAIL_FIRST = { console: "console", players: "players", world: "files", addons: "plugins", schedule: "automation" };
+const lastDetailTab = {};
+
+function syncWorldTabs(dtab) {
+  const group = DETAIL_GROUP[dtab] || "console";
+  if (dtab) lastDetailTab[group] = dtab;
+  document.querySelectorAll(".world-tab").forEach(btn => {
+    const on = btn.dataset.group === group;
+    btn.classList.toggle("active", on);
+    btn.setAttribute("aria-selected", on ? "true" : "false");
+  });
+  document.querySelectorAll(".detail-sub").forEach(row => {
+    const count = row.querySelectorAll(".dtab").length;
+    row.hidden = row.dataset.for !== group || count < 2;
+  });
+}
+
+async function openServer(id, dtab) {
   stopBackupPolling();
   currentServerId = id;
   consoleOffset = 0;
@@ -10,6 +39,9 @@ async function openServer(id) {
   document.querySelectorAll(".dtab-panel").forEach(p => p.classList.remove("active"));
   document.querySelector('.dtab[data-dtab="console"]').classList.add("active");
   document.getElementById("dtab-console").classList.add("active");
+  syncWorldTabs("console");
+  const lastLog = document.getElementById("detail-last-log");
+  if (lastLog) { lastLog.textContent = ""; lastLog.hidden = true; }
   clearConsole();
 
   let s;
@@ -50,6 +82,8 @@ async function openServer(id) {
   loadPlayit();
   loadConnect();
   loadStatusHook();
+  const wanted = dtab && dtab !== "console" ? dtab : "";
+  if (wanted && currentServerId === id && document.querySelector(`.dtab[data-dtab="${wanted}"]`)) switchDetailTab(wanted);
 }
 
 async function updateDetailPing(id) {
