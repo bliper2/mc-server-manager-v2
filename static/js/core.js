@@ -433,7 +433,7 @@ function toggleSidebar(force) {
 }
 
 function restoreSidebar() {
-  try { if (localStorage.getItem("mc-manager-sidebar") !== "0") toggleSidebar(true); } catch {}
+  document.body.classList.remove("sidebar-collapsed");
 }
 
 let faviconBase = null;
@@ -504,8 +504,6 @@ document.addEventListener("keydown", event => {
     if (search && document.getElementById("tab-servers").classList.contains("active")) { event.preventDefault(); search.focus(); }
   } else if (event.key === "?") {
     openShortcuts();
-  } else if (event.key === "[") {
-    toggleSidebar();
   }
 });
 
