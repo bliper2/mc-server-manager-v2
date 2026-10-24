@@ -1,4 +1,4 @@
-// Sidebar navigation: a sliding indicator behind the active item, arrow-key movement and aria-current.
+// Top-bar navigation: a 1px line under the active label, arrow-key movement and aria-current.
 // Tab switching itself stays in core.js (switchTab); this file only reads which item is active.
 
 (function () {
@@ -27,14 +27,15 @@
       return;
     }
     if (indicator.classList.contains("instant") !== !!instant) indicator.classList.toggle("instant", !!instant);
-    indicator.style.height = `${active.offsetHeight}px`;
-    indicator.style.transform = `translateY(${active.offsetTop}px)`;
+    indicator.style.width = `${active.offsetWidth}px`;
+    indicator.style.height = "1px";
+    indicator.style.transform = `translate(${active.offsetLeft}px, ${active.offsetTop + active.offsetHeight - 1}px)`;
     if (!indicator.classList.contains("ready")) indicator.classList.add("ready");
     if (instant) requestAnimationFrame(() => indicator.classList.remove("instant"));
   }
 
   nav.addEventListener("keydown", event => {
-    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+    if (!["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
     const items = visibleItems();
     const index = items.indexOf(document.activeElement);
     if (index < 0) return;
@@ -42,7 +43,7 @@
     let next = index;
     if (event.key === "Home") next = 0;
     else if (event.key === "End") next = items.length - 1;
-    else next = (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+    else next = (index + (event.key === "ArrowDown" || event.key === "ArrowRight" ? 1 : -1) + items.length) % items.length;
     items[next].focus();
   });
 

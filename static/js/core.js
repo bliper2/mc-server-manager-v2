@@ -78,7 +78,7 @@ function can(permission) {
 const OWNER_WATERMARK = "MC-SERVER-MANAGER / Mrkraps aka orgeco";
 
 const prefersReducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-const defaultSettings = { theme: "control", font: "public", accent: "lime", density: "comfortable", motion: !prefersReducedMotion, confirmActions: true, autoRefresh: true, refreshInterval: "30", autoPing: true, pingInterval: "5", consoleAutoRefresh: true, backdrop3d: false };
+const defaultSettings = { theme: "control", font: "inter", accent: "lime", density: "comfortable", motion: !prefersReducedMotion, confirmActions: true, autoRefresh: true, refreshInterval: "30", autoPing: true, pingInterval: "5", consoleAutoRefresh: true, backdrop3d: false };
 
 function getSettings() {
   try { return { ...defaultSettings, ...JSON.parse(localStorage.getItem("mc-manager-settings") || "{}") }; }
@@ -86,6 +86,7 @@ function getSettings() {
 }
 
 const EXTRA_FONTS = {
+  public: "Public+Sans:wght@400;500;600;700",
   geist: "Geist:wght@400;500;600;700",
   dm: "DM+Sans:wght@400;500;600;700",
   manrope: "Manrope:wght@400;500;600;700;800",
@@ -433,7 +434,7 @@ function toggleSidebar(force) {
 }
 
 function restoreSidebar() {
-  try { if (localStorage.getItem("mc-manager-sidebar") !== "0") toggleSidebar(true); } catch {}
+  document.body.classList.remove("sidebar-collapsed");
 }
 
 let faviconBase = null;
@@ -504,8 +505,6 @@ document.addEventListener("keydown", event => {
     if (search && document.getElementById("tab-servers").classList.contains("active")) { event.preventDefault(); search.focus(); }
   } else if (event.key === "?") {
     openShortcuts();
-  } else if (event.key === "[") {
-    toggleSidebar();
   }
 });
 
